@@ -2,7 +2,7 @@
  * Hogar de los Alpes (HdA) — Dominios y Sub-dominios
  * Proyecto MISO 2026-14 · Semana 2 · Diseño Estratégico con DDD
  * -----------------------------------------------------------------
- * Arquitecto: criscont17
+ * Arquitectos: Strangler Team
  * Herramienta: ContextMapper DSL
  * =================================================================
  *
@@ -17,7 +17,6 @@
  * Canal B2C — experiencia del propietario de hogar
  * --------------------------------------------------------------- */
 Domain PlataformaMarketplace {
-
     domainVisionStatement "Proveer a los propietarios de hogares en Colombia y Latinoamérica una experiencia inteligente, segura y transparente para solicitar servicios del hogar, guiados por un asistente conversacional basado en IA que diagnostica el problema, crea el trabajo y conecta al usuario con el proveedor más adecuado en tiempo y forma."
 
     Subdomain AsistenteConversacional {
@@ -39,6 +38,7 @@ Domain PlataformaMarketplace {
         type = GENERIC_SUBDOMAIN
         domainVisionStatement "Proveer los mecanismos de comunicación multicanal (push, email, SMS, in-app) para mantener informados a clientes, proveedores y agentes en cada etapa del ciclo de vida del trabajo. Capacidad estandarizada disponible en el mercado como servicio."
     }
+
 }
 
 /* ---------------------------------------------------------------
@@ -46,7 +46,6 @@ Domain PlataformaMarketplace {
  * Núcleo tecnológico diferenciador de HdA — ciclo de vida del trabajo
  * --------------------------------------------------------------- */
 Domain OrquestacionDeTrabajos {
-
     domainVisionStatement "Ser el núcleo tecnológico diferenciador de HdA, orquestando el ciclo de vida completo de los trabajos del hogar con capacidad de gestionar flujos complejos, sub-trabajos con dependencias, novedades en curso y cambios de alcance, manteniendo la consistencia del estado para todas las partes involucradas en cualquier tipo de trabajo: marketplace, siniestros o instalaciones."
 
     Subdomain GestionDeFlujosDeTrabajos {
@@ -63,6 +62,7 @@ Domain OrquestacionDeTrabajos {
         type = SUPPORTING_DOMAIN
         domainVisionStatement "Gestionar el cierre de calidad de los trabajos, incluyendo la recolección de evidencias, la resolución de disputas entre clientes y proveedores, la aplicación de garantías posventa y la calificación del servicio prestado que retroalimenta el sistema de reputación de la plataforma."
     }
+
 }
 
 /* ---------------------------------------------------------------
@@ -70,7 +70,6 @@ Domain OrquestacionDeTrabajos {
  * Confianza y verificación — diferenciador de seguridad de HdA
  * --------------------------------------------------------------- */
 Domain ProveedoresDeServicio {
-
     domainVisionStatement "Construir y mantener la red de proveedores más confiable de Latinoamérica, garantizando que cada persona natural o empresa habilitada haya superado un proceso de verificación riguroso, y que su reputación, cobertura y habilitaciones estén siempre actualizadas para proteger la seguridad de los hogares y la integridad de la operación."
 
     Subdomain VerificacionYAcreditacion {
@@ -92,6 +91,7 @@ Domain ProveedoresDeServicio {
         type = SUPPORTING_DOMAIN
         domainVisionStatement "Administrar la cobertura geográfica declarada por cada proveedor (ciudades y zonas específicas), garantizando que los trabajos se publiquen únicamente a quienes están habilitados y acreditados para operar en la zona del cliente."
     }
+
 }
 
 /* ---------------------------------------------------------------
@@ -99,7 +99,6 @@ Domain ProveedoresDeServicio {
  * Canal B2B2C — aseguradoras, bancos y comercios
  * --------------------------------------------------------------- */
 Domain SiniestrosEIntegraciones {
-
     domainVisionStatement "Posicionar a HdA como el operador de referencia para aseguradoras, bancos y comercios en la gestión de siniestros del hogar e instalaciones asociadas a ventas, con capacidad de adaptarse a las reglas, compliance y SLAs particulares de más de 30 partners activos, procesando millones de requests diarios con alta disponibilidad y escalabilidad para los picos de eventos climáticos."
 
     Subdomain GestionDeSiniestros {
@@ -121,6 +120,7 @@ Domain SiniestrosEIntegraciones {
         type = SUPPORTING_DOMAIN
         domainVisionStatement "Consolidar las evidencias del trabajo realizado (fotos, reportes, firmas digitales) y generar la facturación correspondiente al partner según el acuerdo comercial vigente, garantizando la trazabilidad y el cumplimiento de los requisitos de auditoría de cada contrato."
     }
+
 }
 
 /* ---------------------------------------------------------------
@@ -128,7 +128,6 @@ Domain SiniestrosEIntegraciones {
  * Pagos de la plataforma y servicios financieros para proveedores
  * --------------------------------------------------------------- */
 Domain FinanzasYFintech {
-
     domainVisionStatement "Garantizar la fluidez y seguridad de los pagos en toda la plataforma y democratizar el acceso a servicios financieros para los proveedores independientes de HdA —muchos sin historial bancario formal— utilizando el historial de trabajos completados como fuente alternativa de scoring crediticio para ofrecer wallets, anticipos y micro-préstamos que impulsen el crecimiento de sus negocios."
 
     Subdomain WalletYPrestamos {
@@ -145,6 +144,7 @@ Domain FinanzasYFintech {
         type = GENERIC_SUBDOMAIN
         domainVisionStatement "Gestionar el riesgo financiero de la operación y garantizar el cumplimiento de las regulaciones aplicables en cada país (prevención de lavado de activos, control de fraude transaccional, normativa fintech local), apoyándose en herramientas y estándares de la industria financiera."
     }
+
 }
 
 /* ---------------------------------------------------------------
@@ -152,7 +152,6 @@ Domain FinanzasYFintech {
  * Escalabilidad operativa y expansión regional
  * --------------------------------------------------------------- */
 Domain ExpansionYOperaciones {
-
     domainVisionStatement "Garantizar la escalabilidad operativa de HdA en su expansión a México, Brasil y Argentina, adaptando la plataforma a las regulaciones, monedas, husos horarios y contextos locales de cada mercado, y habilitando al equipo de agentes humanos para mantener la calidad operativa ante el incremento sostenido de volumen derivado del crecimiento regional."
 
     Subdomain ConfiguracionRegional {
@@ -169,4 +168,6 @@ Domain ExpansionYOperaciones {
         type = SUPPORTING_DOMAIN
         domainVisionStatement "Gestionar las relaciones comerciales y los acuerdos contractuales con los partners B2B2C (aseguradoras, bancos y comercios), facilitando la incorporación de nuevos socios y la renegociación de condiciones conforme HdA expande su operación a nuevos mercados de Latinoamérica."
     }
+
 }
+

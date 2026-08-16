@@ -1,0 +1,333 @@
+/* =================================================================
+ * Hogar de los Alpes (HdA) — Mapa de Contextos TO-BE (Arquitectura Objetivo)
+ * Proyecto MISO 2026-14 · Semana 2 · Diseño Estratégico con DDD
+ * -----------------------------------------------------------------
+ * Arquitectos: Strangler Team
+ * Herramienta: ContextMapper DSL
+ * -----------------------------------------------------------------
+ * NOTA: Este archivo referencia los dominios definidos en:
+ *   ../dominios-subdominios/hda-dominios.cml
+ * Ambos archivos deben estar en el mismo proyecto de VS Code
+ * para que ContextMapper resuelva las referencias correctamente.
+ *
+ * Para el mapa AS-IS (monolito actual), ver:
+ *   hda-context-map-as-is.cml
+ * =================================================================
+ *
+ * PATRONES DE INTEGRACIÓN UTILIZADOS
+ *   OHS  — Open Host Service:    el upstream expone API pública estable
+ *   PL   — Published Language:   contrato publicado / protocolo estándar
+ *   ACL  — Anticorruption Layer: el downstream protege su modelo
+ *   CF   — Conformist:           el downstream adopta el modelo upstream tal cual
+ *   P    — Partnership:          coordinación bidireccional entre equipos
+ * =================================================================
+ */
+
+
+/* ---------------------------------------------------------------
+ * MAPA TO-BE: Arquitectura objetivo con contextos acotados
+ *
+ * La arquitectura objetivo descompone el monolito en 7 bounded
+ * contexts independientes, cada uno con su propio modelo de dominio,
+ * base de datos y equipo responsable. La comunicación entre contextos
+ * se realiza mediante APIs REST y eventos asincrónicos (Apache Kafka),
+ * aplicando patrones DDD para proteger la integridad de cada modelo.
+ *
+ * GestionDeTrabajosBC actúa como núcleo central (Core Domain),
+ * siendo upstream de la mayoría de los contextos consumidores.
+ * --------------------------------------------------------------- */
+ContextMap HogarDeLosAlpesContextMap {
+    state = TO_BE
+    contains MarketplaceBC
+    contains GestionDeTrabajosBC
+    contains ProveedoresBC
+    contains SiniestrosBC
+    contains PagosBC
+    contains FinTechBC
+    contains OperacionesBC
+
+    /* ============================================================
+     * RELACIONES ENTRE CONTEXTOS ACOTADOS
+     * ============================================================ */
+    /* ------------------------------------------------------------
+     * [1] GestionDeTrabajosBC → MarketplaceBC
+     *     Upstream: GestionDeTrabajosBC  [OHS + PL]
+     *     Downstream: MarketplaceBC      [ACL]
+     * 
+     * El canal B2C (Marketplace) crea y consulta trabajos a través
+     * de la API pública de GestionDeTrabajosBC. Este expone un Open
+     * Host Service con un Published Language (eventos estándar de
+     * ciclo de vida: CREADO, ASIGNADO, EN_CURSO, COMPLETADO, etc.).
+     * MarketplaceBC aplica ACL para traducir esos eventos a su propio
+     * modelo de UX sin contaminarse con los detalles internos de la
+     * orquestación (sub-trabajos, dependencias, flujos complejos).
+     * ------------------------------------------------------------ */
+    GestionDeTrabajosBC [U, OHS, PL] -> MarketplaceBC [D, ACL]
+
+    /* ------------------------------------------------------------
+     * [2] GestionDeTrabajosBC → SiniestrosBC
+     *     Upstream: GestionDeTrabajosBC  [OHS + PL]
+     *     Downstream: SiniestrosBC       [ACL]
+     * 
+     * El canal B2B2C (Siniestros) crea trabajos en el motor central.
+     * SiniestrosBC usa ACL para adaptar los trabajos al modelo
+     * contractual de cada partner (reglas, SLAs, evidencias),
+     * aislando la lógica de orquestación de la lógica de partners.
+     * ------------------------------------------------------------ */
+    GestionDeTrabajosBC [U, OHS, PL] -> SiniestrosBC [D, ACL]
+
+    /* ------------------------------------------------------------
+     * [3] ProveedoresBC → GestionDeTrabajosBC
+     *     Upstream: ProveedoresBC           [OHS + PL]
+     *     Downstream: GestionDeTrabajosBC   [ACL]
+     * 
+     * El motor de orquestación consulta qué proveedores están
+     * habilitados, su cobertura geográfica y su reputación para
+     * asignar trabajos de forma óptima. ProveedoresBC expone este
+     * catálogo como OHS estable. GestionDeTrabajosBC usa ACL para
+     * no acoplar su modelo de flujos al modelo de proveedores.
+     * ------------------------------------------------------------ */
+    ProveedoresBC [U, OHS, PL] -> GestionDeTrabajosBC [D, ACL]
+
+    /* ------------------------------------------------------------
+     * [4] ProveedoresBC → MarketplaceBC
+     *     Upstream: ProveedoresBC    [OHS + PL]
+     *     Downstream: MarketplaceBC  [CF]
+     * 
+     * MarketplaceBC muestra perfiles públicos de proveedores a los
+     * clientes (nombre, foto, calificación, especialidades). Adopta
+     * el modelo de ProveedoresBC tal cual (Conformist) porque el
+     * contrato del perfil público es estable y no requiere traducción
+     * significativa al modelo de presentación del canal B2C.
+     * ------------------------------------------------------------ */
+    ProveedoresBC [U, OHS, PL] -> MarketplaceBC [D, CF]
+
+    /* ------------------------------------------------------------
+     * [5] GestionDeTrabajosBC → PagosBC
+     *     Upstream: GestionDeTrabajosBC  [OHS + PL]
+     *     Downstream: PagosBC            [CF]
+     * 
+     * La finalización exitosa de un trabajo en GestionDeTrabajosBC
+     * dispara automáticamente la liberación del pago al proveedor.
+     * PagosBC adopta el evento de cierre como Conformist porque el
+     * contrato es estable y estándar: simplemente procesa el pago
+     * cuando recibe el evento TRABAJO_COMPLETADO.
+     * ------------------------------------------------------------ */
+    GestionDeTrabajosBC [U, OHS, PL] -> PagosBC [D, CF]
+
+    /* ------------------------------------------------------------
+     * [6] GestionDeTrabajosBC → FinTechBC
+     *     Upstream: GestionDeTrabajosBC  [OHS + PL]
+     *     Downstream: FinTechBC          [ACL]
+     * 
+     * FinTechBC necesita el historial de trabajos completados y
+     * calificaciones del proveedor para construir su scoring
+     * crediticio alternativo. Aplica ACL para traducir el modelo de
+     * trabajos (orquestación) al modelo financiero propio (riesgo,
+     * límites, anticipos), sin acoplarse al motor de orquestación.
+     * ------------------------------------------------------------ */
+    GestionDeTrabajosBC [U, OHS, PL] -> FinTechBC [D, ACL]
+
+    /* ------------------------------------------------------------
+     * [7] ProveedoresBC → FinTechBC
+     *     Upstream: ProveedoresBC    [OHS + PL]
+     *     Downstream: FinTechBC      [ACL]
+     * 
+     * FinTechBC también consume el perfil de reputación del proveedor
+     * para enriquecer su modelo de riesgo crediticio. Aplica ACL
+     * para separar el concepto de "proveedor confiable" del concepto
+     * de "sujeto de crédito": son modelos distintos aunque comparten
+     * datos de origen.
+     * ------------------------------------------------------------ */
+    ProveedoresBC [U, OHS, PL] -> FinTechBC [D, ACL]
+
+    /* ------------------------------------------------------------
+     * [8] GestionDeTrabajosBC → OperacionesBC
+     *     Upstream: GestionDeTrabajosBC  [OHS + PL]
+     *     Downstream: OperacionesBC      [CF]
+     * 
+     * OperacionesBC monitorea el estado de todos los trabajos y
+     * recibe alertas de novedades e incidentes para que los agentes
+     * humanos puedan intervenir. Adopta el modelo de eventos como
+     * Conformist (solo lectura) porque no necesita transformar los
+     * datos para su panel de control interno de agentes.
+     * ------------------------------------------------------------ */
+    GestionDeTrabajosBC [U, OHS, PL] -> OperacionesBC [D, CF]
+
+    /* ------------------------------------------------------------
+     * [9] SiniestrosBC ↔ OperacionesBC
+     *     Patrón: Partnership (bidireccional)
+     * 
+     * SiniestrosBC y OperacionesBC coordinan conjuntamente la gestión
+     * de alianzas comerciales con partners B2B2C y la incorporación
+     * de nuevos socios. La relación es de Partnership porque ambos
+     * equipos co-diseñan los flujos de onboarding de partners:
+     * Siniestros aporta los requerimientos técnicos de integración y
+     * Operaciones los requerimientos contractuales y comerciales.
+     * ------------------------------------------------------------ */
+    SiniestrosBC [P] <-> OperacionesBC [P]
+
+    /* ------------------------------------------------------------
+     * [10] PagosBC → SiniestrosBC
+     *      Upstream: PagosBC        [OHS + PL]
+     *      Downstream: SiniestrosBC [ACL]
+     * 
+     * SiniestrosBC necesita el estado de liquidaciones para cerrar
+     * el ciclo de facturación con cada partner B2B2C. Aplica ACL
+     * para traducir el modelo de pagos genérico al modelo de
+     * facturación específico por contrato de partner.
+     * ------------------------------------------------------------ */
+    PagosBC [U, OHS, PL] -> SiniestrosBC [D, ACL]
+
+    /* ------------------------------------------------------------
+     * [11] ProveedoresBC → SiniestrosBC
+     *      Upstream: ProveedoresBC    [OHS + PL]
+     *      Downstream: SiniestrosBC   [CF]
+     * 
+     * Los partners B2B2C definen redes de proveedores homologados.
+     * SiniestrosBC consulta ProveedoresBC para validar que el
+     * proveedor asignado a un siniestro esté en la red permitida
+     * por el partner y cuente con las habilitaciones requeridas.
+     * Adopta Conformist porque el contrato de habilitación es
+     * el mismo estándar para todos los partners.
+     * ------------------------------------------------------------ */
+    ProveedoresBC [U, OHS, PL] -> SiniestrosBC [D, CF]
+}
+
+/* ---------------------------------------------------------------
+ * CONTEXTOS TO-BE: Bounded Contexts del diseño objetivo
+ * --------------------------------------------------------------- */
+/*
+ * MarketplaceBC — Canal B2C (propietarios de hogar)
+ * 
+ * Punto de entrada del cliente final a la plataforma HdA.
+ * Gestiona la experiencia completa desde el primer contacto con el
+ * asistente de IA hasta el seguimiento post-servicio.
+ * 
+ * Dominio que implementa: PlataformaMarketplace
+ *   - AsistenteConversacional (CORE_DOMAIN)
+ *   - PublicacionYBusqueda (CORE_DOMAIN)
+ *   - GestionDeCotizaciones (CORE_DOMAIN)
+ *   - NotificacionesYComunicacion (GENERIC_SUBDOMAIN)
+ * Equipo responsable: Equipo de Canal B2C
+ */
+BoundedContext MarketplaceBC implements PlataformaMarketplace {
+    domainVisionStatement "Experiencia end-to-end del propietario de hogar: desde el diagnóstico conversacional con IA del problema del hogar, pasando por la publicación del trabajo al mercado de proveedores, la gestión de cotizaciones comparativas y la selección del proveedor, hasta el seguimiento en tiempo real del trabajo y la calificación del servicio recibido. Punto de entrada del canal B2C de HdA y diferenciador de experiencia de usuario frente a la competencia."
+    responsibilities "Asistente conversacional IA para diagnóstico de problemas del hogar, publicación de trabajos al mercado de proveedores, gestión de cotizaciones multiproveedor, visualización de perfiles públicos de proveedores, notificaciones multicanal al cliente (push, email, SMS), seguimiento del estado del trabajo, calificación post-servicio."
+}
+
+/*
+ * GestionDeTrabajosBC — Núcleo tecnológico central (Core Domain)
+ * 
+ * Motor de orquestación que gestiona el ciclo de vida completo de
+ * todos los trabajos, independientemente del canal de origen.
+ * Es el bounded context más estratégico de HdA y el upstream
+ * central del que depende la mayoría del sistema.
+ * 
+ * Dominio que implementa: OrquestacionDeTrabajos
+ *   - GestionDeFlujosDeTrabajos (CORE_DOMAIN)
+ *   - SeguimientoYNovedades (SUPPORTING_DOMAIN)
+ *   - CalidadYDisputas (SUPPORTING_DOMAIN)
+ * Equipo responsable: Equipo de Core Platform
+ */
+BoundedContext GestionDeTrabajosBC implements OrquestacionDeTrabajos {
+    domainVisionStatement "Núcleo central de HdA: orquesta el ciclo de vida completo de todos los trabajos del hogar, independientemente de su canal de origen (marketplace B2C, siniestros B2B2C o instalaciones de partners). Gestiona flujos complejos con sub-trabajos y dependencias entre actividades (ej: no instalar muebles si la tubería no está lista), mantiene la consistencia del estado ante novedades y cambios de alcance, y es la única fuente de verdad sobre el estado de cualquier trabajo en la plataforma."
+    responsibilities "Motor de flujos de trabajo con sub-trabajos y dependencias, asignación óptima de proveedores, seguimiento de estado en tiempo real, gestión de novedades y re-diagnósticos en curso, cierre de calidad con recolección de evidencias, resolución de disputas entre clientes y proveedores, publicación de eventos de dominio al resto del sistema (Kafka)."
+}
+
+/*
+ * ProveedoresBC — Red de proveedores confiables
+ * 
+ * Gestiona el activo de confianza diferenciador de HdA: la red de
+ * proveedores verificados. Centraliza el ciclo de vida completo del
+ * proveedor, desde su incorporación hasta el mantenimiento de su
+ * reputación y habilitaciones geográficas.
+ * 
+ * Dominio que implementa: ProveedoresDeServicio
+ *   - VerificacionYAcreditacion (CORE_DOMAIN)
+ *   - RegistroDeProveedores (SUPPORTING_DOMAIN)
+ *   - ReputacionYCalificaciones (CORE_DOMAIN)
+ *   - GestionDeCoberturaGeografica (SUPPORTING_DOMAIN)
+ * Equipo responsable: Equipo de Trust & Safety
+ */
+BoundedContext ProveedoresBC implements ProveedoresDeServicio {
+    domainVisionStatement "Construye y mantiene la red de proveedores más confiable de Latinoamérica: gestiona el ciclo de vida completo del proveedor desde su registro inicial, verificación multi-fuente asistida por IA (antecedentes judiciales, registros empresariales, certificaciones técnicas), acreditación por categoría de servicio y zona geográfica, hasta el mantenimiento continuo de su perfil de reputación con re-validaciones periódicas. Garantiza que sólo proveedores verificados y habilitados participen en trabajos de la plataforma."
+    responsibilities "Onboarding de proveedores personas naturales y empresas de servicios, verificación de antecedentes e identidad multi-fuente, acreditación por categoría de servicio y zona geográfica, mantenimiento del perfil de reputación y calificaciones, re-validaciones periódicas y ante novedades de personal, exposición de catálogo de proveedores habilitados como API pública interna."
+}
+
+/*
+ * SiniestrosBC — Canal B2B2C (aseguradoras, bancos y comercios)
+ * 
+ * Gestiona el canal de mayor volumen y complejidad contractual de
+ * HdA: trabajos originados por partners corporativos para sus
+ * clientes finales. Cada partner tiene reglas, SLAs, redes de
+ * proveedores y requisitos completamente diferentes.
+ * 
+ * Dominio que implementa: SiniestrosEIntegraciones
+ *   - GestionDeSiniestros (CORE_DOMAIN)
+ *   - IntegracionesB2B2C (CORE_DOMAIN)
+ *   - MotorDeReglasDePartner (CORE_DOMAIN)
+ *   - FacturacionYEvidencias (SUPPORTING_DOMAIN)
+ * Equipo responsable: Equipo de Canal B2B2C
+ */
+BoundedContext SiniestrosBC implements SiniestrosEIntegraciones {
+    domainVisionStatement "Gestiona el canal B2B2C de HdA: integra más de 30 partners corporativos (aseguradoras, bancos, comercios de retail), ejecuta las reglas de negocio, SLAs y condiciones contractuales específicas de cada partner mediante un motor de reglas configurable, y orquesta el ciclo de vida completo de siniestros del hogar e instalaciones asociadas a ventas. Procesa millones de requests diarios con elasticidad para escalar hasta 4x el volumen habitual ante eventos climáticos o picos de siniestros."
+    responsibilities "Integración de alta disponibilidad con sistemas de partners B2B2C, motor de reglas configurable por partner (SLAs, redes homologadas, pasos de compliance), gestión del ciclo de vida de siniestros e instalaciones, validación de proveedores habilitados por partner, facturación y consolidación de evidencias por contrato, coordinación de alianzas comerciales con OperacionesBC."
+}
+
+/*
+ * PagosBC — Procesamiento de pagos de la plataforma
+ * 
+ * Intermediario financiero que gestiona todos los flujos de dinero
+ * de la plataforma. Custodia fondos del cliente durante el trabajo
+ * (escrow) y los libera al proveedor al cierre exitoso. También
+ * gestiona las liquidaciones periódicas a partners B2B2C.
+ * 
+ * Dominio que implementa: FinanzasYFintech
+ *   - ProcesoDePagos (GENERIC_SUBDOMAIN)
+ *   - RiesgoYCumplimiento (GENERIC_SUBDOMAIN)
+ * Equipo responsable: Equipo de Pagos
+ */
+BoundedContext PagosBC implements ProcesoDePagos {
+    domainVisionStatement "Procesa todos los flujos de pago de la plataforma HdA garantizando seguridad y trazabilidad: custodia de fondos del cliente en escrow durante la ejecución del trabajo, liberación al proveedor tras el cierre exitoso (disparado por evento de GestionDeTrabajosBC), procesamiento de reembolsos ante cancelaciones o disputas resueltas a favor del cliente, y liquidaciones periódicas a partners B2B2C según los acuerdos comerciales vigentes en cada país de operación."
+    responsibilities "Gestión de escrow cliente-proveedor, liberación de pagos por eventos de dominio (Kafka), reconciliación financiera diaria, liquidaciones periódicas a partners B2B2C, procesamiento de reembolsos y disputas financieras, soporte multi-moneda y multi-país, cumplimiento normativo financiero."
+}
+
+/*
+ * FinTechBC — Servicios financieros para proveedores independientes
+ * 
+ * Diferenciador competitivo de HdA para la retención de proveedores:
+ * ofrece servicios financieros (wallet, anticipos, micro-préstamos)
+ * usando el historial de la plataforma como scoring crediticio
+ * alternativo, habilitando crédito para proveedores sin historial
+ * bancario formal.
+ * 
+ * Dominio que implementa: FinanzasYFintech
+ *   - WalletYPrestamos (CORE_DOMAIN)
+ *   - RiesgoYCumplimiento (GENERIC_SUBDOMAIN)
+ * Equipo responsable: Equipo de FinTech
+ */
+BoundedContext FinTechBC implements WalletYPrestamos {
+    domainVisionStatement "Servicios financieros diferenciados para los proveedores independientes de HdA: billetera digital para recibir pagos de la plataforma, anticipos sobre trabajos en progreso para mejorar el flujo de caja del proveedor, y micro-préstamos con scoring crediticio alternativo construido a partir del historial de trabajos completados, cumplimiento de SLAs y calificaciones recibidas. Democratiza el acceso al crédito para proveedores sin historial bancario formal mediante datos de comportamiento en la plataforma."
+    responsibilities "Wallet digital de proveedores con saldo en tiempo real, solicitud y aprobación automatizada de anticipos de pago, gestión del ciclo de vida de micro-préstamos, scoring crediticio alternativo basado en datos de comportamiento de la plataforma, gestión de riesgo de crédito, cumplimiento normativo fintech por país (prevención de lavado, reporting regulatorio)."
+}
+
+/*
+ * OperacionesBC — Backoffice interno y expansión regional
+ * 
+ * Habilita la operación escalable de HdA en múltiples mercados
+ * latinoamericanos. Proporciona herramientas al equipo de agentes
+ * para monitorear y resolver incidentes, y gestiona la configuración
+ * regional específica de cada país de operación.
+ * 
+ * Dominio que implementa: ExpansionYOperaciones
+ *   - ConfiguracionRegional (SUPPORTING_DOMAIN)
+ *   - GestionDeAgentes (SUPPORTING_DOMAIN)
+ *   - AlianzasComerciales (SUPPORTING_DOMAIN)
+ * Equipo responsable: Equipo de Operaciones
+ */
+BoundedContext OperacionesBC implements ExpansionYOperaciones {
+    domainVisionStatement "Habilita la operación escalable de HdA en su expansión a múltiples países de Latinoamérica (Colombia, México, Brasil, Argentina): centraliza la configuración regional por mercado (moneda, idioma, regulaciones laborales y fiscales, husos horarios), proporciona herramientas de backoffice para que los agentes humanos monitoreen el estado de los trabajos y resuelvan incidentes en tiempo real, y gestiona las relaciones comerciales y contractuales con los partners B2B2C para garantizar el crecimiento del canal B2B2C."
+    responsibilities "Panel de control para agentes con alertas de trabajos problemáticos y SLA en riesgo, configuración multi-país y multi-moneda, gestión del ciclo de vida de alianzas comerciales con partners B2B2C, soporte a la incorporación de nuevos mercados regionales, monitoreo operativo del estado global de la plataforma."
+}
+

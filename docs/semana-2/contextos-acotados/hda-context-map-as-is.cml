@@ -1,0 +1,57 @@
+/* =================================================================
+ * Hogar de los Alpes (HdA) — Mapa de Contextos AS-IS (Estado Actual)
+ * Proyecto MISO 2026-14 · Semana 2 · Diseño Estratégico con DDD
+ * -----------------------------------------------------------------
+ * Arquitectos: Strangler Team
+ * Herramienta: ContextMapper DSL
+ * =================================================================
+ * Estrategia de migración: Strangler Fig Pattern — los bounded contexts
+ * del TO-BE reemplazan gradualmente módulos del monolito, coexistiendo
+ * hasta que el monolito quede vacío y pueda ser dado de baja.
+ * =================================================================
+ */
+
+/* ---------------------------------------------------------------
+ * Dominio AS-IS: representa el sistema legado como un todo
+ * --------------------------------------------------------------- */
+Domain SistemaLegadoHdA {
+    domainVisionStatement "Sistema monolítico original de HdA que agrupa en un único despliegue todos los dominios de negocio sin separación explícita: marketplace, trabajos, proveedores, siniestros, pagos, fintech y operaciones."
+
+    Subdomain PlataformaMonolitica {
+        type = SUPPORTING_DOMAIN
+        domainVisionStatement "Monolito único que contiene sin separación todos los módulos de HdA: ciclo de vida de trabajos, gestión de proveedores, canal B2C marketplace, canal B2B2C siniestros, pagos en escrow, servicios fintech y backoffice de agentes."
+    }
+
+}
+
+/* ---------------------------------------------------------------
+ * MAPA AS-IS
+ * --------------------------------------------------------------- */
+ContextMap HogarDeLosAlpesAsIs {
+    state = AS_IS
+    contains MonolitoHdA
+}
+
+/* ---------------------------------------------------------------
+ * CONTEXTO AS-IS: Monolito único de HdA
+ * --------------------------------------------------------------- */
+/*
+ * MonolitoHdA — Aplicación monolítica (estado actual)
+ * 
+ * Un único proceso y una única base de datos gestionan:
+ *   - Asistente conversacional IA y publicación de trabajos (marketplace)
+ *   - Motor de orquestación del ciclo de vida de trabajos
+ *   - Verificación y acreditación de proveedores
+ *   - Integración con partners B2B2C (siniestros e instalaciones)
+ *   - Procesamiento de pagos en escrow
+ *   - Wallet y micro-préstamos para proveedores (fintech)
+ *   - Backoffice de agentes y configuración regional multi-país
+ * 
+ * No existe separación de bounded contexts: cualquier módulo
+ * puede acceder directamente a los datos de cualquier otro módulo.
+ */
+BoundedContext MonolitoHdA implements PlataformaMonolitica {
+    domainVisionStatement "Aplicación monolítica inicial de HdA que concentra en un único despliegue toda la lógica de negocio: marketplace B2C con asistente IA, orquestación de trabajos del hogar, gestión y verificación de proveedores, canal B2B2C de siniestros e instalaciones para más de 30 partners, procesamiento de pagos en escrow, servicios fintech para proveedores y backoffice de operaciones multi-país. Base de datos PostgreSQL única y compartida entre todos los módulos. Punto de partida de la migración estratégica (Strangler Fig Pattern) hacia los bounded contexts independientes definidos en el mapa TO-BE."
+    responsibilities "Gestión completa del ciclo de vida de trabajos (marketplace + siniestros + instalaciones), onboarding y verificación de proveedores, integración con partners B2B2C, pagos y escrow cliente-proveedor, wallet y micro-préstamos para proveedores, scoring crediticio alternativo, backoffice de agentes, configuración multi-país (Colombia, México, Brasil, Argentina)."
+}
+
