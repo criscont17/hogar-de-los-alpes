@@ -1,0 +1,29 @@
+# ContextMapper
+*.png
+!docs/**/*.png
+.contextMapper/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+*.classpath
+*.project
+.settings/
+
+# Node / Python (para futuras semanas)
+node_modules/
+__pycache__/
+*.pyc
+.env
+.venv/
+dist/
+build/
+
+# Logs
+*.log
