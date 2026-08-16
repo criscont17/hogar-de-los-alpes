@@ -1,0 +1,142 @@
+/* =================================================================
+ * Hogar de los Alpes (HdA) — Mapa de Contextos Acotados
+ * Proyecto MISO 2026-14 · Semana 2 · Diseño Estratégico con DDD
+ * -----------------------------------------------------------------
+ * Arquitecto: criscont17
+ * Herramienta: ContextMapper DSL
+ * -----------------------------------------------------------------
+ * NOTA: Este archivo referencia los dominios definidos en:
+ *   ../dominios-subdominios/hda-dominios.cml
+ * Ambos archivos deben estar en el mismo proyecto de VS Code
+ * para que ContextMapper resuelva las referencias correctamente.
+ * =================================================================
+ *
+ * PATRONES DE INTEGRACIÓN UTILIZADOS
+ *   OHS  — Open Host Service:    el upstream expone API pública estable
+ *   PL   — Published Language:   contrato publicado / protocolo estándar
+ *   ACL  — Anticorruption Layer: el downstream protege su modelo
+ *   CF   — Conformist:           el downstream adopta el modelo upstream tal cual
+ *   P    — Partnership:          coordinación bidireccional entre equipos
+ */
+
+ContextMap HogarDeLosAlpesContextMap {
+    state = TO_BE
+    type = SYSTEM_LANDSCAPE
+
+    contains MarketplaceBC
+    contains GestionDeTrabajosBC
+    contains ProveedoresBC
+    contains SiniestrosBC
+    contains PagosBC
+    contains FinTechBC
+    contains OperacionesBC
+
+    /* ---- Relaciones ---- */
+
+    /*
+     * GestionDeTrabajosBC es el contexto upstream central:
+     * expone su API de ciclo de vida de trabajos como Open Host Service.
+     * MarketplaceBC y SiniestrosBC son consumidores downstream que crean
+     * y consultan trabajos, protegiéndose con ACL para no contaminar su
+     * modelo interno con los conceptos del núcleo de orquestación.
+     */
+    GestionDeTrabajosBC [U, OHS, PL] -> MarketplaceBC [D, ACL]
+    GestionDeTrabajosBC [U, OHS, PL] -> SiniestrosBC [D, ACL]
+
+    /*
+     * GestionDeTrabajosBC depende de ProveedoresBC para obtener datos
+     * de proveedores habilitados, su cobertura y su reputación.
+     * ProveedoresBC actúa como upstream exponiendo un OHS estable.
+     */
+    ProveedoresBC [U, OHS, PL] -> GestionDeTrabajosBC [D, ACL]
+
+    /*
+     * MarketplaceBC también consulta ProveedoresBC directamente para
+     * mostrar perfiles públicos de proveedores a los clientes.
+     */
+    ProveedoresBC [U, OHS, PL] -> MarketplaceBC [D, CF]
+
+    /*
+     * La finalización de un trabajo en GestionDeTrabajosBC dispara el
+     * proceso de pago. PagosBC adopta el modelo del evento de cierre
+     * de trabajo (Conformist), ya que el contrato es estable y estándar.
+     */
+    GestionDeTrabajosBC [U, OHS, PL] -> PagosBC [D, CF]
+
+    /*
+     * FinTechBC necesita el historial de trabajos completados y las
+     * calificaciones del proveedor para construir el scoring crediticio.
+     * Usa ACL para traducir el modelo de trabajos a su propio modelo
+     * financiero sin acoplarse a los detalles internos de orquestación.
+     */
+    GestionDeTrabajosBC [U, OHS, PL] -> FinTechBC [D, ACL]
+    ProveedoresBC [U, OHS, PL] -> FinTechBC [D, ACL]
+
+    /*
+     * OperacionesBC monitorea el estado de los trabajos y recibe
+     * alertas de novedades e incidentes. Adopta el modelo de eventos
+     * de GestionDeTrabajosBC como consumidor conformista (solo lectura).
+     */
+    GestionDeTrabajosBC [U, OHS, PL] -> OperacionesBC [D, CF]
+
+    /*
+     * SiniestrosBC coordina con OperacionesBC la gestión de alianzas
+     * comerciales y la incorporación de nuevos partners B2B2C.
+     * La relación es de Partnership porque ambos equipos co-definen
+     * los flujos de incorporación de partners.
+     */
+    SiniestrosBC [P] <-> OperacionesBC [P]
+}
+
+/* ---------------------------------------------------------------
+ * CONTEXTOS ACOTADOS
+ * --------------------------------------------------------------- */
+
+BoundedContext MarketplaceBC implements PlataformaMarketplace.AsistenteConversacional, PlataformaMarketplace.PublicacionYBusqueda, PlataformaMarketplace.GestionDeCotizaciones, PlataformaMarketplace.NotificacionesYComunicacion {
+    type = FEATURE
+    domainVisionStatement "Experiencia end-to-end del propietario de hogar: desde el diagnóstico conversacional del problema hasta la selección del proveedor y el seguimiento del trabajo. Punto de entrada del canal B2C de HdA."
+    implementationTechnology "React (web), Flutter (móvil), API Gateway REST/GraphQL"
+    responsibilities "Asistente conversacional IA, publicación de trabajos, gestión de cotizaciones, notificaciones multicanal al cliente."
+}
+
+BoundedContext GestionDeTrabajosBC implements OrquestacionDeTrabajos.GestionDeFlujosDeTrabajos, OrquestacionDeTrabajos.SeguimientoYNovedades, OrquestacionDeTrabajos.CalidadYDisputas {
+    type = FEATURE
+    domainVisionStatement "Núcleo central de HdA: orquesta el ciclo de vida de todos los trabajos (marketplace y B2B2C), gestiona flujos complejos con dependencias, y mantiene la consistencia del estado ante novedades y cambios de alcance."
+    implementationTechnology "Python / FastAPI, Apache Kafka (eventos), PostgreSQL"
+    responsibilities "Motor de flujos de trabajo, orquestación de sub-trabajos, seguimiento de estado, gestión de novedades, cierre de calidad y disputas."
+}
+
+BoundedContext ProveedoresBC implements ProveedoresDeServicio.VerificacionYAcreditacion, ProveedoresDeServicio.RegistroDeProveedores, ProveedoresDeServicio.ReputacionYCalificaciones, ProveedoresDeServicio.GestionDeCoberturaGeografica {
+    type = FEATURE
+    domainVisionStatement "Gestiona el ciclo de vida completo de los proveedores de HdA: registro, verificación asistida por IA, acreditación por servicio y zona, y mantenimiento del perfil de reputación."
+    implementationTechnology "Python / FastAPI, integraciones con sistemas externos (policía, registros empresariales, entidades certificadoras)"
+    responsibilities "Onboarding de proveedores, verificación individual y empresarial, acreditación por zona y categoría, reputación y calificaciones, re-validaciones periódicas."
+}
+
+BoundedContext SiniestrosBC implements SiniestrosEIntegraciones.GestionDeSiniestros, SiniestrosEIntegraciones.IntegracionesB2B2C, SiniestrosEIntegraciones.MotorDeReglasDePartner, SiniestrosEIntegraciones.FacturacionYEvidencias {
+    type = FEATURE
+    domainVisionStatement "Gestiona el canal B2B2C de HdA: integra más de 30 partners (aseguradoras, bancos, comercios), ejecuta las reglas de cada partner y orquesta el ciclo de vida de siniestros e instalaciones."
+    implementationTechnology "Python / FastAPI, Apache Kafka, integraciones REST/SOAP con partners"
+    responsibilities "Integración con partners B2B2C, motor de reglas por partner, gestión de siniestros e instalaciones, facturación y consolidación de evidencias."
+}
+
+BoundedContext PagosBC implements FinanzasYFintech.ProcesoDePagos {
+    type = FEATURE
+    domainVisionStatement "Procesa todos los pagos de la plataforma: custodia de fondos del cliente durante el trabajo, liberación al proveedor al cierre, y liquidaciones a partners B2B2C."
+    implementationTechnology "Python / FastAPI, integración con pasarelas de pago (Stripe, Wompi, Mercado Pago según país)"
+    responsibilities "Custodia de pagos, transferencias cliente-proveedor, liquidaciones a partners, reconciliación financiera."
+}
+
+BoundedContext FinTechBC implements FinanzasYFintech.WalletYPrestamos, FinanzasYFintech.RiesgoYCumplimiento {
+    type = FEATURE
+    domainVisionStatement "Servicios financieros para proveedores independientes: billetera digital, anticipos de pago y micro-préstamos con scoring basado en historial de trabajos en la plataforma."
+    implementationTechnology "Python / FastAPI, modelos de ML para scoring crediticio"
+    responsibilities "Wallet de proveedores, anticipos y micro-préstamos, scoring crediticio alternativo, gestión de riesgo y cumplimiento normativo fintech."
+}
+
+BoundedContext OperacionesBC implements ExpansionYOperaciones.ConfiguracionRegional, ExpansionYOperaciones.GestionDeAgentes, ExpansionYOperaciones.AlianzasComerciales {
+    type = FEATURE
+    domainVisionStatement "Habilita la operación escalable de HdA en múltiples países: configuración regional por mercado, herramientas para el equipo de agentes humanos y gestión de relaciones comerciales con partners B2B2C."
+    implementationTechnology "Python / FastAPI, backoffice web interno"
+    responsibilities "Configuración multi-país (moneda, idioma, regulaciones), herramientas de agentes, gestión de alianzas B2B2C, expansión regional."
+}
