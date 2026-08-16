@@ -60,14 +60,26 @@ ContextMapper es la herramienta usada para modelar dominios, sub-dominios y cont
 
 > Documentación oficial: https://contextmapper.org/docs/ide-plugins/
 
-**Requisito previo (ambas opciones)**
+**Requisitos previos (ambas opciones)**
 
-- Java 11 o superior instalado y en el `PATH`.
+- **Java 11 o superior** instalado y en el `PATH`.
+- **Graphviz** instalado — ContextMapper lo necesita para generar los diagramas PNG.
 
 ```bash
-# Verificar versión de Java
+# Verificar Java
 java -version
+
+# Verificar Graphviz
+dot -V
+
+# Instalar Graphviz en macOS (si no está instalado)
+brew install graphviz
+
+# Instalar Graphviz en Ubuntu/Debian
+# sudo apt-get install graphviz
 ```
+
+> ⚠️ Después de instalar Graphviz, **reinicia VS Code** para que el plugin lo detecte en el PATH.
 
 ---
 
