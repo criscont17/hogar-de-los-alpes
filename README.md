@@ -65,20 +65,6 @@ ContextMapper es la herramienta usada para modelar dominios, sub-dominios y cont
 - **Java 11 o superior** instalado y en el `PATH`.
 - **Graphviz** instalado — ContextMapper lo necesita para generar los diagramas PNG.
 
-```bash
-# Verificar Java
-java -version
-
-# Verificar Graphviz
-dot -V
-
-# Instalar Graphviz en macOS (si no está instalado)
-brew install graphviz
-
-# Instalar Graphviz en Ubuntu/Debian
-# sudo apt-get install graphviz
-```
-
 > ⚠️ Después de instalar Graphviz, **reinicia VS Code** para que el plugin lo detecte en el PATH.
 
 ---
@@ -87,13 +73,11 @@ brew install graphviz
 
 ### Semana 2 — Modelado Estratégico con DDD
 
-| Criterio de Evaluación | Artefacto | Ubicación |
+| Descripción | Artefacto | Ubicación |
 |---|---|---|
 | Dominios y sub-dominios identificados y documentados con DSL de ContextMapper | `hda-dominios.cml` | [`docs/semana-2/dominios-subdominios/`](docs/semana-2/dominios-subdominios/) |
-| Vision statements para todos los dominios en DSL de ContextMapper | `hda-dominios.cml` (campo `domainVisionStatement`) | [`docs/semana-2/dominios-subdominios/`](docs/semana-2/dominios-subdominios/) |
-| Tipos de sub-dominios (núcleo, soporte, genérico) en DSL de ContextMapper | `hda-dominios.cml` (campo `type`) | [`docs/semana-2/dominios-subdominios/`](docs/semana-2/dominios-subdominios/) |
 | Lenguaje ubicuo documentado | Imágenes / diagramas | [`docs/semana-2/lenguaje-ubicuo/`](docs/semana-2/lenguaje-ubicuo/) |
-| Mapa de contextos acotados en DSL de ContextMapper | `hda-context-map.cml` | [`docs/semana-2/contextos-acotados/`](docs/semana-2/contextos-acotados/) |
+| Mapas de contextos acotados (AS-IS y TO-BE) en DSL de ContextMapper | `hda-context-map-*.cml` | [`docs/semana-2/contextos-acotados/`](docs/semana-2/contextos-acotados/) |
 
 ---
 
@@ -103,18 +87,3 @@ brew install graphviz
 |---|---|
 | `main` | Versión estable — entregables revisados y aprobados. |
 | `develop` | Rama de integración — trabajo en progreso antes de pasar a `main`. |
-
-**Flujo de trabajo recomendado:**
-
-```bash
-# Clonar el repositorio
-git clone https://github.com/criscont17/hogar-de-los-alpes.git
-cd hogar-de-los-alpes
-
-# Crear rama de trabajo desde develop
-git checkout develop
-git checkout -b feature/semana-2-dominios
-
-# Al terminar, hacer PR hacia develop
-# develop → main solo para entregables finales
-```
