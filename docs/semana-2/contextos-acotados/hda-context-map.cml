@@ -21,7 +21,6 @@
 
 ContextMap HogarDeLosAlpesContextMap {
     state = TO_BE
-    type = SYSTEM_LANDSCAPE
 
     contains MarketplaceBC
     contains GestionDeTrabajosBC
@@ -92,49 +91,49 @@ ContextMap HogarDeLosAlpesContextMap {
  * CONTEXTOS ACOTADOS
  * --------------------------------------------------------------- */
 
-BoundedContext MarketplaceBC implements PlataformaMarketplace.AsistenteConversacional, PlataformaMarketplace.PublicacionYBusqueda, PlataformaMarketplace.GestionDeCotizaciones, PlataformaMarketplace.NotificacionesYComunicacion {
+BoundedContext MarketplaceBC implements PlataformaMarketplace {
     type = FEATURE
     domainVisionStatement "Experiencia end-to-end del propietario de hogar: desde el diagnóstico conversacional del problema hasta la selección del proveedor y el seguimiento del trabajo. Punto de entrada del canal B2C de HdA."
     implementationTechnology "React (web), Flutter (móvil), API Gateway REST/GraphQL"
     responsibilities "Asistente conversacional IA, publicación de trabajos, gestión de cotizaciones, notificaciones multicanal al cliente."
 }
 
-BoundedContext GestionDeTrabajosBC implements OrquestacionDeTrabajos.GestionDeFlujosDeTrabajos, OrquestacionDeTrabajos.SeguimientoYNovedades, OrquestacionDeTrabajos.CalidadYDisputas {
+BoundedContext GestionDeTrabajosBC implements OrquestacionDeTrabajos {
     type = FEATURE
     domainVisionStatement "Núcleo central de HdA: orquesta el ciclo de vida de todos los trabajos (marketplace y B2B2C), gestiona flujos complejos con dependencias, y mantiene la consistencia del estado ante novedades y cambios de alcance."
     implementationTechnology "Python / FastAPI, Apache Kafka (eventos), PostgreSQL"
     responsibilities "Motor de flujos de trabajo, orquestación de sub-trabajos, seguimiento de estado, gestión de novedades, cierre de calidad y disputas."
 }
 
-BoundedContext ProveedoresBC implements ProveedoresDeServicio.VerificacionYAcreditacion, ProveedoresDeServicio.RegistroDeProveedores, ProveedoresDeServicio.ReputacionYCalificaciones, ProveedoresDeServicio.GestionDeCoberturaGeografica {
+BoundedContext ProveedoresBC implements ProveedoresDeServicio {
     type = FEATURE
     domainVisionStatement "Gestiona el ciclo de vida completo de los proveedores de HdA: registro, verificación asistida por IA, acreditación por servicio y zona, y mantenimiento del perfil de reputación."
     implementationTechnology "Python / FastAPI, integraciones con sistemas externos (policía, registros empresariales, entidades certificadoras)"
     responsibilities "Onboarding de proveedores, verificación individual y empresarial, acreditación por zona y categoría, reputación y calificaciones, re-validaciones periódicas."
 }
 
-BoundedContext SiniestrosBC implements SiniestrosEIntegraciones.GestionDeSiniestros, SiniestrosEIntegraciones.IntegracionesB2B2C, SiniestrosEIntegraciones.MotorDeReglasDePartner, SiniestrosEIntegraciones.FacturacionYEvidencias {
+BoundedContext SiniestrosBC implements SiniestrosEIntegraciones {
     type = FEATURE
     domainVisionStatement "Gestiona el canal B2B2C de HdA: integra más de 30 partners (aseguradoras, bancos, comercios), ejecuta las reglas de cada partner y orquesta el ciclo de vida de siniestros e instalaciones."
     implementationTechnology "Python / FastAPI, Apache Kafka, integraciones REST/SOAP con partners"
     responsibilities "Integración con partners B2B2C, motor de reglas por partner, gestión de siniestros e instalaciones, facturación y consolidación de evidencias."
 }
 
-BoundedContext PagosBC implements FinanzasYFintech.ProcesoDePagos {
+BoundedContext PagosBC implements FinanzasYFintech {
     type = FEATURE
     domainVisionStatement "Procesa todos los pagos de la plataforma: custodia de fondos del cliente durante el trabajo, liberación al proveedor al cierre, y liquidaciones a partners B2B2C."
     implementationTechnology "Python / FastAPI, integración con pasarelas de pago (Stripe, Wompi, Mercado Pago según país)"
     responsibilities "Custodia de pagos, transferencias cliente-proveedor, liquidaciones a partners, reconciliación financiera."
 }
 
-BoundedContext FinTechBC implements FinanzasYFintech.WalletYPrestamos, FinanzasYFintech.RiesgoYCumplimiento {
+BoundedContext FinTechBC implements FinanzasYFintech {
     type = FEATURE
     domainVisionStatement "Servicios financieros para proveedores independientes: billetera digital, anticipos de pago y micro-préstamos con scoring basado en historial de trabajos en la plataforma."
     implementationTechnology "Python / FastAPI, modelos de ML para scoring crediticio"
     responsibilities "Wallet de proveedores, anticipos y micro-préstamos, scoring crediticio alternativo, gestión de riesgo y cumplimiento normativo fintech."
 }
 
-BoundedContext OperacionesBC implements ExpansionYOperaciones.ConfiguracionRegional, ExpansionYOperaciones.GestionDeAgentes, ExpansionYOperaciones.AlianzasComerciales {
+BoundedContext OperacionesBC implements ExpansionYOperaciones {
     type = FEATURE
     domainVisionStatement "Habilita la operación escalable de HdA en múltiples países: configuración regional por mercado, herramientas para el equipo de agentes humanos y gestión de relaciones comerciales con partners B2B2C."
     implementationTechnology "Python / FastAPI, backoffice web interno"
