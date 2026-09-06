@@ -4,6 +4,13 @@
 > Curso: Diseño y Arquitectura de Aplicaciones No Monolíticas (DANM)  
 > Proyecto: Migración del sistema monolítico de Hogar de los Alpes (HdA) a una arquitectura reactiva distribuida basada en eventos.
 
+## Implementación WalletBC
+
+La implementación ejecutable del bounded context de billetera se encuentra en `src/`.
+Incluye DDD, arquitectura hexagonal, CQS, PostgreSQL con SQLAlchemy, API FastAPI y eventos
+de dominio e integración simulada. Consulte
+[`src/README.md`](src/README.md) para instalarla, ejecutarla y probar sus endpoints.
+
 ---
 
 ## 📋 Tabla de Contenido
@@ -29,8 +36,12 @@ hogar-de-los-alpes/
 ├── README.md                          # Este archivo
 ├── .gitignore
 │
-├── src/                               # Código fuente (POC e implementaciones por semana)
-│   └── (vacío — se poblará en semanas posteriores)
+├── src/                               # Implementación de WalletBC
+│   ├── dominio/                       # Agregado, entidades, VO, eventos y seedwork
+│   ├── aplicacion/                    # Comandos, queries, handlers, DTOs y puertos
+│   └── infraestructura/               # API, SQLAlchemy y adaptadores de eventos
+├── requirements.txt                  # Dependencias Python
+├── docker-compose.yml                # PostgreSQL local
 │
 └── docs/                              # Documentación de arquitectura y diseño
     └── semana-2/                      # Entregables Semana 2: Diseño Estratégico DDD
