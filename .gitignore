@@ -20,7 +20,7 @@
 node_modules/
 __pycache__/
 *.pyc
-src/data/*.db
+wallet-service/app/data/*.db
 .env
 .venv/
 dist/

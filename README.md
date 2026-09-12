@@ -6,10 +6,11 @@
 
 ## Implementación WalletBC
 
-La implementación ejecutable del bounded context de billetera se encuentra en `src/`.
-Incluye DDD, arquitectura hexagonal, CQS, PostgreSQL con SQLAlchemy, API FastAPI y eventos
-de dominio e integración simulada. Consulte
-[`src/README.md`](src/README.md) para instalarla, ejecutarla y probar sus endpoints.
+La implementación ejecutable del bounded context de billetera se encuentra en
+`wallet-service/`. Incluye DDD, arquitectura hexagonal, CQS, PostgreSQL con SQLAlchemy,
+API FastAPI y eventos de dominio e integración simulada. Consulte
+[`wallet-service/README.md`](wallet-service/README.md) para instalarla, ejecutarla y
+probar sus endpoints.
 
 ---
 
@@ -36,12 +37,16 @@ hogar-de-los-alpes/
 ├── README.md                          # Este archivo
 ├── .gitignore
 │
-├── src/                               # Implementación de WalletBC
-│   ├── dominio/                       # Agregado, entidades, VO, eventos y seedwork
-│   ├── aplicacion/                    # Comandos, queries, handlers, DTOs y puertos
-│   └── infraestructura/               # API, SQLAlchemy y adaptadores de eventos
-├── requirements.txt                  # Dependencias Python
-├── docker-compose.yml                # PostgreSQL local
+├── wallet-service/                    # Microservicio WalletBC (billetera de proveedores)
+│   ├── README.md                      # Arquitectura, ejecución y API del servicio
+│   ├── requirements.txt               # Dependencias Python del servicio
+│   ├── .env.example                   # Variables de entorno del servicio
+│   └── app/                           # Código fuente
+│       ├── seedwork/                  # Bloques genéricos compartidos por las capas
+│       ├── dominio/                   # Agregado, entidades, VO, eventos y errores
+│       ├── aplicacion/                # Comandos, queries, handlers, DTOs y puertos
+│       └── infraestructura/           # API, SQLAlchemy y adaptadores de eventos
+├── docker-compose.yml                 # PostgreSQL local, compartido por el repositorio
 │
 └── docs/                              # Documentación de arquitectura y diseño
     └── semana-2/                      # Entregables Semana 2: Diseño Estratégico DDD
