@@ -1,0 +1,428 @@
+{
+  "info": {
+    "_postman_id": "b3f1c7a2-5d64-4e18-9a2f-1c7d0e4a9b31",
+    "name": "WalletBC — Hogar de los Alpes",
+    "description": "Colección de pruebas del microservicio de billeteras de proveedores.\n\nEstá pensada para ejecutarse completa con el Collection Runner: cada corrida genera un `proveedor_id` y un `trabajo_id` nuevos, así que el estado siempre arranca limpio y los saldos esperados son deterministas.\n\nOrden del flujo principal:\n\n1. Crear billetera — saldo 0\n2. Acreditar 150.000 — saldo 150.000\n3. Debitar 25.000 — saldo 125.000\n4. Trabajo liquidado 80.000 — saldo 205.000\n5. Listar los 3 movimientos\n\nAntes de ejecutar, levante el servicio:\n\n    cd wallet-service\n    env\\Scripts\\activate.bat\n    uvicorn app.infraestructura.adaptadores.entrada.api.main:app --reload",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "proveedor_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "billetera_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "trabajo_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "01 Flujo principal",
+      "item": [
+        {
+          "name": "Crear billetera",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Identificadores nuevos en cada corrida: el flujo no arrastra estado previo.",
+                  "pm.collectionVariables.set('proveedor_id', pm.variables.replaceIn('{{$guid}}'));",
+                  "pm.collectionVariables.set('trabajo_id', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 201', () => pm.response.to.have.status(201));",
+                  "",
+                  "const b = pm.response.json();",
+                  "pm.collectionVariables.set('billetera_id', b.id);",
+                  "",
+                  "pm.test('nace con saldo cero', () => pm.expect(Number(b.saldo)).to.eql(0));",
+                  "pm.test('queda activa', () => pm.expect(b.estado).to.eql('Activa'));",
+                  "pm.test('conserva el proveedor', () => pm.expect(b.proveedor_id).to.eql(pm.collectionVariables.get('proveedor_id')));",
+                  "pm.test('moneda COP', () => pm.expect(b.moneda).to.eql('COP'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"proveedor_id\": \"{{proveedor_id}}\",\n  \"moneda\": \"COP\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/billeteras",
+              "host": ["{{base_url}}"],
+              "path": ["billeteras"]
+            },
+            "description": "Crea la billetera del proveedor. Emite el evento de dominio `BilleteraCreada`, que el bus publica como `BilleteraCreadaV1`."
+          }
+        },
+        {
+          "name": "Consultar saldo inicial",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('saldo en cero', () => pm.expect(Number(pm.response.json().saldo)).to.eql(0));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/billeteras/{{billetera_id}}/saldo",
+              "host": ["{{base_url}}"],
+              "path": ["billeteras", "{{billetera_id}}", "saldo"]
+            }
+          }
+        },
+        {
+          "name": "Acreditar saldo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('saldo = 150000', () => pm.expect(Number(pm.response.json().saldo)).to.eql(150000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monto\": \"150000.00\",\n  \"motivo\": \"AjusteManual\",\n  \"referencia_externa\": \"ajuste-1\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/billeteras/{{billetera_id}}/acreditar",
+              "host": ["{{base_url}}"],
+              "path": ["billeteras", "{{billetera_id}}", "acreditar"]
+            },
+            "description": "Motivos válidos: `PagoDeTrabajo`, `RetiroAProveedor`, `AjusteManual`, `Reverso`.\n\nPublica `SaldoAcreditadoV1` con `motivo: \"AjusteManual\"`."
+          }
+        },
+        {
+          "name": "Debitar saldo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('saldo = 125000', () => pm.expect(Number(pm.response.json().saldo)).to.eql(125000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monto\": \"25000.00\",\n  \"motivo\": \"RetiroAProveedor\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/billeteras/{{billetera_id}}/debitar",
+              "host": ["{{base_url}}"],
+              "path": ["billeteras", "{{billetera_id}}", "debitar"]
+            }
+          }
+        },
+        {
+          "name": "Procesar trabajo liquidado",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('saldo = 205000', () => pm.expect(Number(pm.response.json().saldo)).to.eql(205000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"trabajo_id\": \"{{trabajo_id}}\",\n  \"proveedor_id\": \"{{proveedor_id}}\",\n  \"monto\": \"80000.00\",\n  \"moneda\": \"COP\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/eventos-externos/trabajo-liquidado",
+              "host": ["{{base_url}}"],
+              "path": ["eventos-externos", "trabajo-liquidado"]
+            },
+            "description": "Simula el evento externo `TrabajoLiquidado`. Acredita con motivo `PagoDeTrabajo` y deja el `trabajo_id` como `referencia_externa`.\n\nEn los logs del servicio se ve `SaldoAcreditadoV1` con `\"motivo\": \"PagoDeTrabajo\"`.\n\nOJO: hoy no hay control de idempotencia. Reenviar el mismo `trabajo_id` acredita de nuevo."
+          }
+        },
+        {
+          "name": "Listar movimientos",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const m = pm.response.json();",
+                  "pm.test('hay 3 movimientos', () => pm.expect(m).to.have.lengthOf(3));",
+                  "pm.test('el ultimo es el pago de trabajo', () => {",
+                  "    pm.expect(m[m.length - 1].motivo).to.eql('PagoDeTrabajo');",
+                  "    pm.expect(m[m.length - 1].referencia_externa).to.eql(pm.collectionVariables.get('trabajo_id'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/billeteras/{{billetera_id}}/movimientos",
+              "host": ["{{base_url}}"],
+              "path": ["billeteras", "{{billetera_id}}", "movimientos"]
+            }
+          }
+        },
+        {
+          "name": "Listar movimientos — filtro Credito",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const m = pm.response.json();",
+                  "pm.test('hay 2 creditos', () => pm.expect(m).to.have.lengthOf(2));",
+                  "pm.test('todos son de tipo Credito', () => m.forEach(x => pm.expect(x.tipo).to.eql('Credito')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/billeteras/{{billetera_id}}/movimientos?tipo=Credito",
+              "host": ["{{base_url}}"],
+              "path": ["billeteras", "{{billetera_id}}", "movimientos"],
+              "query": [
+                { "key": "tipo", "value": "Credito" },
+                { "key": "fecha_desde", "value": "2026-01-01T00:00:00Z", "disabled": true },
+                { "key": "fecha_hasta", "value": "2026-12-31T23:59:59Z", "disabled": true }
+              ]
+            },
+            "description": "Filtros disponibles: `tipo` (`Credito` o `Debito`), `fecha_desde` y `fecha_hasta` en ISO 8601. Los de fecha vienen desactivados; actívelos para probarlos."
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Casos de error",
+      "item": [
+        {
+          "name": "Billetera duplicada → 409",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('explica el conflicto', () => pm.expect(pm.response.json().detalle).to.include('ya tiene una billetera'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"proveedor_id\": \"{{proveedor_id}}\",\n  \"moneda\": \"COP\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/billeteras",
+              "host": ["{{base_url}}"],
+              "path": ["billeteras"]
+            },
+            "description": "Reutiliza el `proveedor_id` del flujo principal: un proveedor solo puede tener una billetera."
+          }
+        },
+        {
+          "name": "Fondos insuficientes → 409",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('explica el rechazo', () => pm.expect(pm.response.json().detalle).to.include('excede el saldo'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monto\": \"999999999.00\",\n  \"motivo\": \"RetiroAProveedor\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/billeteras/{{billetera_id}}/debitar",
+              "host": ["{{base_url}}"],
+              "path": ["billeteras", "{{billetera_id}}", "debitar"]
+            },
+            "description": "Aunque la petición falla, el agregado emite `DebitoRechazado` y el bus lo publica como `DebitoRechazadoV1`. Revise los logs del servicio: debe aparecer aun con respuesta 409.\n\nEl saldo no cambia, porque el rechazo no persiste nada."
+          }
+        },
+        {
+          "name": "Billetera inexistente → 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 404', () => pm.response.to.have.status(404));",
+                  "pm.test('lo dice claro', () => pm.expect(pm.response.json().detalle).to.include('no existe'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/billeteras/{{$guid}}/saldo",
+              "host": ["{{base_url}}"],
+              "path": ["billeteras", "{{$guid}}", "saldo"]
+            }
+          }
+        },
+        {
+          "name": "Monto negativo → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 400', () => pm.response.to.have.status(400));",
+                  "pm.test('trae detalle', () => pm.expect(pm.response.json()).to.have.property('detalle'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monto\": \"-5.00\",\n  \"motivo\": \"AjusteManual\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/billeteras/{{billetera_id}}/acreditar",
+              "host": ["{{base_url}}"],
+              "path": ["billeteras", "{{billetera_id}}", "acreditar"]
+            }
+          }
+        },
+        {
+          "name": "Moneda distinta a la billetera → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 400', () => pm.response.to.have.status(400));",
+                  "pm.test('menciona la moneda', () => pm.expect(pm.response.json().detalle.toLowerCase()).to.include('moneda'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"trabajo_id\": \"{{$guid}}\",\n  \"proveedor_id\": \"{{proveedor_id}}\",\n  \"monto\": \"10000.00\",\n  \"moneda\": \"USD\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/eventos-externos/trabajo-liquidado",
+              "host": ["{{base_url}}"],
+              "path": ["eventos-externos", "trabajo-liquidado"]
+            },
+            "description": "La billetera es COP: una liquidación en USD se rechaza. Este caso no emite ningún evento, a diferencia del débito rechazado."
+          }
+        },
+        {
+          "name": "Motivo inválido → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monto\": \"1000.00\",\n  \"motivo\": \"MotivoQueNoExiste\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/billeteras/{{billetera_id}}/acreditar",
+              "host": ["{{base_url}}"],
+              "path": ["billeteras", "{{billetera_id}}", "acreditar"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
