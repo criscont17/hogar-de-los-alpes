@@ -12,6 +12,20 @@ API FastAPI y eventos de dominio e integración simulada. Consulte
 [`wallet-service/README.md`](wallet-service/README.md) para instalarla, ejecutarla y
 probar sus endpoints.
 
+## Implementación GestionDeTrabajosBC
+
+El núcleo del sistema, el motor del ciclo de vida de los trabajos, se encuentra en
+`gestion-trabajos-service/`. Usa la misma arquitectura que WalletBC (DDD, hexagonal y CQS)
+y agrega:
+
+- eventos y comandos sobre Apache Pulsar;
+- una capa anti-corrupción con un adaptador por partner B2B2C (REST propio, SOAP y webhooks);
+- circuit breaker por partner;
+- eventos de integración versionados.
+
+Así cumple los escenarios de calidad de Interoperabilidad (#9) y Modificabilidad (#3).
+Consulte [`gestion-trabajos-service/README.md`](gestion-trabajos-service/README.md).
+
 ---
 
 ## 📋 Tabla de Contenido
@@ -46,7 +60,17 @@ hogar-de-los-alpes/
 │       ├── dominio/                   # Agregado, entidades, VO, eventos y errores
 │       ├── aplicacion/                # Comandos, queries, handlers, DTOs y puertos
 │       └── infraestructura/           # API, SQLAlchemy y adaptadores de eventos
-├── docker-compose.yml                 # PostgreSQL local, compartido por el repositorio
+│
+├── gestion-trabajos-service/          # Microservicio GestionDeTrabajosBC (core domain)
+│   ├── README.md                      # Arquitectura, escenarios de calidad, Pulsar y API
+│   ├── Dockerfile                     # Imagen del servicio (se despliega con docker compose)
+│   ├── requirements.txt               # Dependencias Python del servicio
+│   ├── collections/                   # Colección Postman (escenarios de calidad)
+│   ├── ejemplos/onboarding/           # Partner de ejemplo para demostrar el onboarding
+│   ├── scripts/                       # Publicar comandos y escuchar eventos en Pulsar
+│   └── app/                           # seedwork/ dominio/ aplicacion/ infraestructura/
+│                                      # (incluye acl_partners/: capa anti-corrupción)
+├── docker-compose.yml                 # PostgreSQL de cada servicio, Apache Pulsar y GestionDeTrabajosBC
 │
 └── docs/                              # Documentación de arquitectura y diseño
     └── semana-2/                      # Entregables Semana 2: Diseño Estratégico DDD

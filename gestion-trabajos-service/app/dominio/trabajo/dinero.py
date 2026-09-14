@@ -1,0 +1,41 @@
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+
+from app.dominio.errores import MonedaInvalidaError, MontoInvalidoError
+from app.seedwork.dominio import ValueObject
+
+
+@dataclass(frozen=True)
+class Dinero(ValueObject):
+    """Monto en una moneda ISO. La operación en varios países impide sumar
+    montos de monedas distintas sin una conversión explícita."""
+
+    monto: Decimal
+    moneda: str
+
+    def __post_init__(self) -> None:
+        try:
+            monto = Decimal(str(self.monto))
+        except (InvalidOperation, ValueError) as exc:
+            raise MontoInvalidoError("El monto debe ser un número decimal válido") from exc
+        if not monto.is_finite() or monto < 0:
+            raise MontoInvalidoError("El monto no puede ser negativo ni infinito")
+        moneda = (self.moneda or "").strip().upper()
+        if len(moneda) != 3 or not moneda.isalpha():
+            raise MonedaInvalidaError("La moneda debe ser un código alfabético ISO de tres letras")
+        object.__setattr__(self, "monto", monto)
+        object.__setattr__(self, "moneda", moneda)
+
+    def sumar(self, otro: "Dinero") -> "Dinero":
+        self.validar_misma_moneda(otro)
+        return Dinero(self.monto + otro.monto, self.moneda)
+
+    def es_mayor_que(self, otro: "Dinero") -> bool:
+        self.validar_misma_moneda(otro)
+        return self.monto > otro.monto
+
+    def validar_misma_moneda(self, otro: "Dinero") -> None:
+        if self.moneda != otro.moneda:
+            raise MonedaInvalidaError(
+                f"No se pueden operar montos en {self.moneda} y {otro.moneda}"
+            )

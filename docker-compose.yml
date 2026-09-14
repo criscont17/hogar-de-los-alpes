@@ -15,5 +15,55 @@ services:
     volumes:
       - wallet_postgres_data:/var/lib/postgresql/data
 
+  # Base propia de GestionDeTrabajosBC: cada bounded context es dueño de sus datos.
+  postgres-trabajos:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: trabajos_db
+      POSTGRES_USER: trabajos
+      POSTGRES_PASSWORD: trabajos
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trabajos -d trabajos_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - trabajos_postgres_data:/var/lib/postgresql/data
+
+  # Apache Pulsar en modo standalone para eventos y comandos entre bounded contexts.
+  # Sin volumen: los tópicos se recrean al levantarlo, suficiente para la POC.
+  pulsar:
+    image: apachepulsar/pulsar:4.0.13
+    command: bin/pulsar standalone
+    ports:
+      - "6650:6650"
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "bin/pulsar-admin brokers healthcheck"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+
+  # GestionDeTrabajosBC desplegado junto a su base y Pulsar.
+  gestion-trabajos:
+    build: ./gestion-trabajos-service
+    environment:
+      DATABASE_URL: postgresql+psycopg://trabajos:trabajos@postgres-trabajos:5432/trabajos_db
+      MESSAGE_BROKER: pulsar
+      PULSAR_URL: pulsar://pulsar:6650
+      PULSAR_CONSUMIR_COMANDOS: "true"
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres-trabajos:
+        condition: service_healthy
+      pulsar:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   wallet_postgres_data:
+  trabajos_postgres_data:

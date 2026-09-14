@@ -1,0 +1,17 @@
+{
+  "descripcion": "Renovación de cocina",
+  "urgencia": "Media",
+  "moneda": "COP",
+  "ubicacion": {
+    "pais": "CO",
+    "ciudad": "Bogota",
+    "direccion": "Calle 93 # 11-20"
+  },
+  "sub_trabajos": [
+    {"clave": "plomeria", "categoria": "Plomeria", "descripcion": "Cambiar tuberías"},
+    {"clave": "baldoseria", "categoria": "Baldoseria", "descripcion": "Enchapar piso", "depende_de": ["plomeria"]},
+    {"clave": "electricidad", "categoria": "Electricidad", "descripcion": "Nuevas tomas", "depende_de": ["plomeria"]},
+    {"clave": "carpinteria", "categoria": "Carpinteria", "descripcion": "Instalar muebles", "depende_de": ["baldoseria", "electricidad"]},
+    {"clave": "pintura", "categoria": "Pintura", "descripcion": "Acabados", "depende_de": ["carpinteria"]}
+  ]
+}
