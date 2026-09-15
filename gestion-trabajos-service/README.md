@@ -109,6 +109,31 @@ Lo que aporta GestionDeTrabajosBC a cada uno:
 |---|---|
 | Modificabilidad #3 | El agregado `Trabajo` solo conoce `CondicionesDelTrabajo` (tope, red, SLA), sin nada propio de un partner. Integrar un partner nuevo no toca ni reinicia este servicio. |
 | Interoperabilidad #9 | Contrato canónico `CrearTrabajoV1`, idempotente por referencia de partner; eventos de integración versionados; y `CreacionDeTrabajoRechazadaV1` para que el partner se entere de los rechazos aunque haya solicitado por mensajería. Nunca llama a un partner, así que su caída no lo afecta. |
+| Escalabilidad #4 | La suscripción `Shared` sobre `comandos-trabajo` reparte los comandos `CrearTrabajoV1` entre todas las instancias corriendo; agregar una réplica no requiere ningún cambio de código. Experimento y resultados en [`scripts/carga_escalabilidad.py`](scripts/carga_escalabilidad.py). |
+
+### Experimento de Escalabilidad #4
+
+`scripts/carga_escalabilidad.py` simula la "llegada masiva de siniestros desde partners":
+publica `N` comandos `CrearTrabajoV1` en `comandos-trabajo` y mide, para cada uno, el tiempo
+entre publicarlo y recibir su `TrabajoCreadoV2` en `eventos-trabajo` — esa es la latencia de
+"aceptación" en una arquitectura asíncrona, donde no hay una respuesta HTTP que cronometrar.
+
+```bash
+# con Pulsar y este servicio corriendo (docker compose up -d pulsar gestion-trabajos)
+python -m scripts.carga_escalabilidad --num 200
+```
+
+Para comparar 1 instancia contra varias (la táctica de escalado horizontal del escenario):
+
+```bash
+docker compose --profile escalabilidad up -d --build gestion-trabajos-2
+python -m scripts.carga_escalabilidad --num 200   # repetir con la réplica activa
+```
+
+Ambas instancias comparten la suscripción `gestion-trabajos` (`Shared`) sobre el mismo tópico,
+así que Pulsar reparte la carga entre las dos automáticamente. El script reporta latencia
+p50/p95/p99 y el porcentaje de comandos confirmados, y los compara contra la medida de la
+respuesta definida en la Entrega 3 (p95 < 500ms, p99 < 1s, ≥99.95% persistido).
 
 ## Eventos y comandos con Apache Pulsar
 

@@ -66,6 +66,30 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Segunda réplica de GestionDeTrabajosBC, solo para el experimento de escalabilidad
+  # (Escenario #4): comparte la misma base y la misma suscripción `Shared` sobre
+  # `comandos-trabajo` que la instancia principal, así que Pulsar reparte los comandos
+  # entre ambas sin ningún cambio de código. No arranca con `docker compose up` por
+  # defecto — requiere el perfil `escalabilidad`:
+  #   docker compose --profile escalabilidad up -d --build gestion-trabajos-2
+  #   python -m scripts.carga_escalabilidad --num 200   # correr dentro de gestion-trabajos-service
+  gestion-trabajos-2:
+    build: ./gestion-trabajos-service
+    profiles: ["escalabilidad"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://trabajos:trabajos@postgres-trabajos:5432/trabajos_db
+      MESSAGE_BROKER: pulsar
+      PULSAR_URL: pulsar://pulsar:6650
+      PULSAR_CONSUMIR_COMANDOS: "true"
+    ports:
+      - "8004:8001"
+    depends_on:
+      postgres-trabajos:
+        condition: service_healthy
+      pulsar:
+        condition: service_healthy
+    restart: unless-stopped
+
   # Base propia de OperacionesBC: partners, acuerdos comerciales y vista de sus trabajos.
   postgres-operaciones:
     image: postgres:16-alpine
@@ -101,7 +125,45 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Base propia de PagosBC: cada pago (cobro al cliente o pago a un proveedor) vive aquí.
+  postgres-pagos:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: pagos_db
+      POSTGRES_USER: pagos
+      POSTGRES_PASSWORD: pagos
+    ports:
+      - "5435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pagos -d pagos_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - pagos_postgres_data:/var/lib/postgresql/data
+
+  # PagosBC: cobros al cliente (checkout) y pagos a proveedores. Consume TrabajoCerradoV1
+  # de GestionDeTrabajosBC (Conformist) para liberar el pago de cada liquidación, y aísla
+  # cada PSP (Wompi, PayU, MercadoPago) detrás de un adaptador con su propio circuit
+  # breaker: la caída de un PSP nunca bloquea a los demás.
+  pagos:
+    build: ./pagos-service
+    environment:
+      DATABASE_URL: postgresql+psycopg://pagos:pagos@postgres-pagos:5432/pagos_db
+      MESSAGE_BROKER: pulsar
+      PULSAR_URL: pulsar://pulsar:6650
+      PULSAR_CONSUMIR_EVENTOS_TRABAJO: "true"
+    ports:
+      - "8003:8003"
+    depends_on:
+      postgres-pagos:
+        condition: service_healthy
+      pulsar:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   wallet_postgres_data:
   trabajos_postgres_data:
   operaciones_postgres_data:
+  pagos_postgres_data:
