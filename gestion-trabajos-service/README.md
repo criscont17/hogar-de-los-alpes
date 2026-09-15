@@ -486,15 +486,14 @@ Las que responden directamente a un escenario de calidad lo indican en el títul
 
 ### DA-07. Apache Pulsar detrás del puerto `MessageBroker`
 
-- **Contexto:** la arquitectura objetivo es orientada a eventos, y el mapa TO-BE nombra a
-  Apache Kafka como plataforma.
+- **Contexto:** la arquitectura objetivo es orientada a eventos.
 - **Decisión:** Apache Pulsar, con un tópico de eventos y uno de comandos.
   - Los eventos usan `trabajo_id` como clave de partición: con `Key_Shared`, los hechos de un
     mismo trabajo llegan en orden aunque haya varios consumidores.
   - Los comandos que fallan por causas técnicas se reentregan y, tras tres intentos, pasan a
     una *dead letter queue*.
 - **Alternativas descartadas:**
-  - Kafka: el equipo eligió Pulsar, y el puerto `MessageBroker` deja la decisión reversible.
+  - Kafka: Se eligió Pulsar, y el puerto `MessageBroker` deja la decisión reversible.
   - Un tópico por tipo de evento: multiplica los tópicos, y con propiedades en el mensaje
     cada consumidor filtra sin leer el cuerpo.
 - **Consecuencias:** en local, Pulsar standalone consume bastante CPU y memoria. Por eso
