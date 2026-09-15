@@ -141,8 +141,10 @@ repositorio:
 docker compose up -d --build --wait gestion-trabajos operaciones
 ```
 
-- OperacionesBC queda en <http://localhost:8002/docs> y GestionDeTrabajosBC en
-  <http://localhost:8001/docs>.
+- Documentación interactiva, detrás de la entrada pública: OperacionesBC en
+  <http://localhost/operaciones/docs> y GestionDeTrabajosBC en <http://localhost/trabajos/docs>
+  (requiere el gateway: `docker compose up -d --build --wait`). Las APIs también responden en
+  los puertos directos 8002 y 8001 desde la propia máquina, que es lo que usa la colección Postman.
 - Logs: `docker compose logs -f operaciones gestion-trabajos`.
 - Detener sin borrar datos: `docker compose stop`.
 

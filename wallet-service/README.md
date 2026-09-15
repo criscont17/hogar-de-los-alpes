@@ -147,10 +147,24 @@ uvicorn app.infraestructura.adaptadores.entrada.api.main:app --reload
 
 SQLite permite ejecutar todos los endpoints sin infraestructura adicional. Sin embargo,
 la especificación académica establece PostgreSQL como tecnología de persistencia; por
-eso las opciones A o B son las apropiadas para validar formalmente la entrega.
+eso las opciones A, B o D son las apropiadas para validar formalmente la entrega.
 
-La documentación interactiva queda en <http://localhost:8000/docs>. Las tablas se crean
-al iniciar el servicio. Para producción se recomienda sustituir esta inicialización por
+### Opción D — Todo en Docker, detrás de la entrada pública
+
+Desde la raíz del repositorio levante todos los servicios y el gateway:
+
+```bash
+docker compose up -d --build --wait
+```
+
+WalletBC queda publicado en <http://localhost/wallet/> (por ejemplo
+`http://localhost/wallet/billeteras`) y su documentación en <http://localhost/wallet/docs>.
+El puerto 8000 sigue aceptando llamadas a la API desde la propia máquina, pero Swagger solo
+carga a través del gateway, porque en Docker el servicio corre con `UVICORN_ROOT_PATH=/wallet`.
+Consulte el [README raíz](../README.md#despliegue-con-docker-y-entrada-pública).
+
+En las opciones A, B y C la documentación interactiva queda en <http://localhost:8000/docs>.
+Las tablas se crean al iniciar el servicio. Para producción se recomienda sustituir esta inicialización por
 migraciones versionadas.
 
 ## API REST

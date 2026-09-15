@@ -164,7 +164,9 @@ export DATABASE_URL=sqlite+pysqlite:///./app/data/pagos.db
 uvicorn app.infraestructura.adaptadores.entrada.api.main:app --reload --port 8003
 ```
 
-La documentación interactiva queda en <http://localhost:8003/docs>.
+La documentación interactiva queda en <http://localhost:8003/docs> cuando el servicio corre
+local. Con Docker Compose completo queda detrás de la entrada pública, en
+<http://localhost/pagos/docs>; ver el [README raíz](../README.md#despliegue-con-docker-y-entrada-pública).
 
 ### Con el resto del sistema (Docker Compose completo)
 

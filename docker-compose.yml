@@ -1,4 +1,27 @@
+# Despliegue completo de Hogar de los Alpes.
+#
+# La única entrada pública es `gateway` (Nginx, puerto 80). Bases de datos, Pulsar y las
+# APIs directas quedan ligadas a 127.0.0.1: se usan desde la propia máquina (Postman,
+# scripts) pero no quedan expuestas en la VM aunque el security group se abra de más.
+# Para exponerlas a propósito: IP_PUERTOS_INTERNOS=0.0.0.0 docker compose up -d
+#
+# Cada API arranca con UVICORN_ROOT_PATH igual a su prefijo en el gateway, para que
+# Swagger funcione en /wallet/docs, /trabajos/docs, /operaciones/docs y /pagos/docs.
+
 services:
+  # Entrada pública única: enruta /wallet, /trabajos, /operaciones y /pagos.
+  gateway:
+    build: ./gateway
+    ports:
+      - "${PUERTO_GATEWAY:-80}:80"
+    depends_on:
+      - wallet
+      - gestion-trabajos
+      - operaciones
+      - pagos
+    restart: unless-stopped
+
+  # Base propia de WalletBC.
   postgres:
     image: postgres:16-alpine
     environment:
@@ -6,7 +29,7 @@ services:
       POSTGRES_USER: wallet
       POSTGRES_PASSWORD: wallet
     ports:
-      - "5432:5432"
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U wallet -d wallet_db"]
       interval: 5s
@@ -14,6 +37,19 @@ services:
       retries: 10
     volumes:
       - wallet_postgres_data:/var/lib/postgresql/data
+
+  # WalletBC: billeteras de proveedores. No usa Pulsar; sus eventos van al log.
+  wallet:
+    build: ./wallet-service
+    environment:
+      DATABASE_URL: postgresql+psycopg://wallet:wallet@postgres:5432/wallet_db
+      UVICORN_ROOT_PATH: /wallet
+    ports:
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
   # Base propia de GestionDeTrabajosBC: cada bounded context es dueño de sus datos.
   postgres-trabajos:
@@ -23,7 +59,7 @@ services:
       POSTGRES_USER: trabajos
       POSTGRES_PASSWORD: trabajos
     ports:
-      - "5433:5432"
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U trabajos -d trabajos_db"]
       interval: 5s
@@ -40,8 +76,8 @@ services:
     image: apachepulsar/pulsar:4.0.13
     command: ["bash", "-c", "rm -rf /pulsar/data/* && exec bin/pulsar standalone"]
     ports:
-      - "6650:6650"
-      - "8080:8080"
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:6650:6650"
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:8080:8080"
     healthcheck:
       test: ["CMD-SHELL", "bin/pulsar-admin brokers healthcheck"]
       interval: 10s
@@ -57,8 +93,9 @@ services:
       MESSAGE_BROKER: pulsar
       PULSAR_URL: pulsar://pulsar:6650
       PULSAR_CONSUMIR_COMANDOS: "true"
+      UVICORN_ROOT_PATH: /trabajos
     ports:
-      - "8001:8001"
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:8001:8001"
     depends_on:
       postgres-trabajos:
         condition: service_healthy
@@ -81,8 +118,9 @@ services:
       MESSAGE_BROKER: pulsar
       PULSAR_URL: pulsar://pulsar:6650
       PULSAR_CONSUMIR_COMANDOS: "true"
+      UVICORN_ROOT_PATH: /trabajos
     ports:
-      - "8004:8001"
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:8004:8001"
     depends_on:
       postgres-trabajos:
         condition: service_healthy
@@ -98,7 +136,7 @@ services:
       POSTGRES_USER: operaciones
       POSTGRES_PASSWORD: operaciones
     ports:
-      - "5434:5432"
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:5434:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U operaciones -d operaciones_db"]
       interval: 5s
@@ -116,8 +154,9 @@ services:
       MESSAGE_BROKER: pulsar
       PULSAR_URL: pulsar://pulsar:6650
       PULSAR_CONSUMIR_EVENTOS: "true"
+      UVICORN_ROOT_PATH: /operaciones
     ports:
-      - "8002:8002"
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:8002:8002"
     depends_on:
       postgres-operaciones:
         condition: service_healthy
@@ -133,7 +172,7 @@ services:
       POSTGRES_USER: pagos
       POSTGRES_PASSWORD: pagos
     ports:
-      - "5435:5432"
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:5435:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pagos -d pagos_db"]
       interval: 5s
@@ -153,8 +192,9 @@ services:
       MESSAGE_BROKER: pulsar
       PULSAR_URL: pulsar://pulsar:6650
       PULSAR_CONSUMIR_EVENTOS_TRABAJO: "true"
+      UVICORN_ROOT_PATH: /pagos
     ports:
-      - "8003:8003"
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:8003:8003"
     depends_on:
       postgres-pagos:
         condition: service_healthy

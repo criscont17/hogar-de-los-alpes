@@ -50,6 +50,7 @@ demuestra el escenario de calidad de Interoperabilidad (#7). Consulte
 
 - [Contexto del Proyecto](#contexto-del-proyecto)
 - [Estructura del Proyecto](#estructura-del-proyecto)
+- [Despliegue con Docker y entrada pública](#despliegue-con-docker-y-entrada-pública)
 - [Dependencias e Instalación](#dependencias-e-instalación)
 - [Guía de Evaluación — Dónde encontrar cada entregable](#guía-de-evaluación--dónde-encontrar-cada-entregable)
 - [Ramas del Repositorio](#ramas-del-repositorio)
@@ -71,6 +72,7 @@ hogar-de-los-alpes/
 │
 ├── wallet-service/                    # Microservicio WalletBC (billetera de proveedores)
 │   ├── README.md                      # Arquitectura, ejecución y API del servicio
+│   ├── Dockerfile                     # Imagen del servicio (se despliega con docker compose)
 │   ├── requirements.txt               # Dependencias Python del servicio
 │   ├── .env.example                   # Variables de entorno del servicio
 │   └── app/                           # Código fuente
@@ -103,7 +105,12 @@ hogar-de-los-alpes/
 │   ├── collections/                   # Colección Postman del checkout y la resiliencia por PSP
 │   └── app/                           # seedwork/ dominio/ aplicacion/ infraestructura/
 │                                      # (incluye acl_psp/: capa anti-corrupción por pasarela)
-├── docker-compose.yml                 # PostgreSQL de cada servicio, Apache Pulsar y los servicios
+│
+├── gateway/                           # Entrada pública única (Nginx, puerto 80)
+│   ├── Dockerfile
+│   └── nginx.conf                     # Rutas /wallet, /trabajos, /operaciones y /pagos
+│
+├── docker-compose.yml                 # Gateway, los cuatro servicios, sus bases y Apache Pulsar
 │
 └── docs/                              # Documentación de arquitectura y diseño
     └── semana-2/                      # Entregables Semana 2: Diseño Estratégico DDD
@@ -111,6 +118,156 @@ hogar-de-los-alpes/
         ├── lenguaje-ubicuo/           # Diagramas e imágenes del lenguaje ubicuo
         └── contextos-acotados/        # Mapa de contextos acotados (.cml)
 ```
+
+---
+
+## Despliegue con Docker y entrada pública
+
+`docker-compose.yml` levanta el sistema completo en una sola máquina:
+
+- los cuatro microservicios;
+- una base PostgreSQL por servicio;
+- Apache Pulsar;
+- un **gateway Nginx**, que es la única entrada pública.
+
+```
+                    Internet / red
+                          │  :80
+                    ┌─────▼─────┐
+                    │  gateway  │  (Nginx)
+                    └─────┬─────┘
+   /wallet/…  /trabajos/…  /operaciones/…  /pagos/…
+      │            │              │            │
+   wallet   gestion-trabajos  operaciones    pagos        ← solo red interna de Docker
+      │            │              │            │
+   postgres   postgres-trabajos  postgres-   postgres-
+                   └──── Apache Pulsar ─────┘ pagos
+```
+
+### Levantar el sistema
+
+Desde la raíz del repositorio:
+
+```bash
+docker compose up -d --build --wait
+```
+
+- La primera construcción tarda unos minutos.
+- `--wait` termina cuando todos los contenedores quedan `healthy`.
+- Verifique con `curl http://localhost/`: responde el índice de contextos.
+
+Si el puerto 80 está ocupado en su máquina, cambie el puerto del gateway. En Bash:
+
+```bash
+PUERTO_GATEWAY=8088 docker compose up -d --build --wait
+```
+
+En PowerShell:
+
+```powershell
+$env:PUERTO_GATEWAY="8088"; docker compose up -d --build --wait
+```
+
+### Rutas publicadas
+
+El gateway quita el prefijo antes de reenviar. La URL pública es el prefijo seguido de la
+ruta del servicio: por ejemplo, `GET /trabajos/trabajos/{id}` llega a GestionDeTrabajosBC
+como `GET /trabajos/{id}`.
+
+| Contexto | Entrada pública | Swagger | Ejemplo | Puerto directo (solo en la máquina) |
+|---|---|---|---|---|
+| WalletBC | `/wallet/…` | `/wallet/docs` | `POST /wallet/billeteras` | `127.0.0.1:8000` |
+| GestionDeTrabajosBC | `/trabajos/…` | `/trabajos/docs` | `GET /trabajos/trabajos?limite=5` | `127.0.0.1:8001` |
+| OperacionesBC | `/operaciones/…` | `/operaciones/docs` | `GET /operaciones/partners` | `127.0.0.1:8002` |
+| PagosBC | `/pagos/…` | `/pagos/docs` | `GET /pagos/pagos` | `127.0.0.1:8003` |
+
+El gateway también publica:
+
+- `GET /`: índice de contextos;
+- `GET /salud`: salud del propio gateway.
+
+Una ruta que no existe responde `404` en JSON. Si un servicio está caído, sus rutas responden
+`503` en JSON y los demás contextos siguen funcionando.
+
+### Decisiones de la entrada pública
+
+- **Una sola puerta.** Solo el gateway escucha en todas las interfaces (`0.0.0.0:80`). Las
+  APIs directas, las bases y Pulsar quedan ligadas a `127.0.0.1`. Se pueden usar desde la
+  propia máquina (Postman, scripts, clientes de base de datos), pero no quedan expuestas en
+  la VM aunque el security group se abra de más. Para exponerlas a propósito, levante con
+  `IP_PUERTOS_INTERNOS=0.0.0.0`.
+- **Swagger detrás del prefijo.** Cada API arranca con `UVICORN_ROOT_PATH` igual a su
+  prefijo. Así `/wallet/docs` carga su esquema, y "Try it out" llama a través del gateway.
+  El precio es que, en Docker, Swagger no carga en el puerto directo (`localhost:8000/docs`),
+  aunque las llamadas a la API por ese puerto siguen funcionando.
+- **Resolución DNS por petición.** Nginx consulta el DNS interno de Docker en cada petición
+  (con una caché de 10 s). Por eso reconstruir un solo servicio, como en el onboarding del
+  escenario 3, no obliga a reiniciar el gateway, y el gateway arranca aunque falte un servicio.
+- **Sin TLS por ahora.** Si se pone un balanceador de AWS con certificado delante de la VM,
+  el gateway conserva `X-Forwarded-Proto`.
+
+### Postman a través del gateway
+
+Las colecciones apuntan por defecto a los puertos directos (`localhost:800x`), que funcionan
+desde la misma máquina. Para usarlas contra la VM, cambie las variables base del environment
+a la entrada pública:
+
+| Colección | Variables | Valor |
+|---|---|---|
+| WalletBC | `base_url` | `http://<IP-pública>/wallet` |
+| GestionDeTrabajosBC | `base_url` | `http://<IP-pública>/trabajos` |
+| Escenarios de calidad (OperacionesBC) | `base_operaciones` / `base_trabajos` | `http://<IP-pública>/operaciones` / `http://<IP-pública>/trabajos` |
+| PagosBC | `base_url` | `http://<IP-pública>/pagos` |
+
+La carpeta 05 (onboarding) reconstruye OperacionesBC. Ese paso se ejecuta por SSH en la VM.
+
+### En una máquina virtual de AWS (EC2)
+
+Consumo medido del stack completo en reposo:
+
+- **Memoria:** unos 2,9 GiB. Apache Pulsar usa 2,4 GiB, y cada API y cada base menos de 70 MiB.
+- **CPU:** Pulsar tiene ráfagas de varios núcleos, sobre todo al arrancar.
+- **Disco:** las imágenes ocupan unos 2,6 GB.
+
+1. **Instancia:**
+   - **Sistema:** Ubuntu 24.04 LTS, x86_64.
+   - **Tamaño:** mínimo `t3.large` (2 vCPU, 8 GiB). Para el experimento de escalabilidad,
+     `t3.xlarge` (4 vCPU, 16 GiB).
+   - **Disco:** 30 GB gp3.
+   - **IP:** asigne una *Elastic IP* para que no cambie al reiniciar.
+2. **Security group (entrada):**
+   - `80/tcp` desde las IPs que necesiten acceso, o `0.0.0.0/0` para una demo abierta;
+   - `22/tcp` solo desde su IP.
+   - No abra 5432–5435, 6650, 8000–8003 ni 8080.
+3. **Docker:**
+
+   ```bash
+   curl -fsSL https://get.docker.com | sudo sh
+   sudo usermod -aG docker $USER && sudo systemctl enable --now docker
+   # cierre la sesión SSH y vuelva a entrar
+   ```
+
+4. **Despliegue:**
+
+   ```bash
+   git clone -b develop https://github.com/criscont17/hogar-de-los-alpes.git
+   cd hogar-de-los-alpes
+   docker compose up -d --build --wait
+   curl http://localhost/salud
+   ```
+
+5. **Verificación desde su equipo:** abra `http://<IP-pública>/` y
+   `http://<IP-pública>/trabajos/docs`.
+6. **Actualizar tras un cambio:** `git pull && docker compose up -d --build --wait`.
+7. **Acceso a una base desde su equipo, sin abrir puertos:**
+   `ssh -L 5433:localhost:5433 ubuntu@<IP-pública>`, y conecte a `localhost:5433`.
+
+Tenga en cuenta:
+
+- Los contenedores tienen `restart: unless-stopped` y vuelven solos tras un reinicio de la VM.
+- Los datos de PostgreSQL persisten en volúmenes.
+- Pulsar arranca siempre limpio: los mensajes en tránsito al reiniciar se pierden, pero lo
+  ya guardado en cada base se conserva.
 
 ---
 

@@ -171,8 +171,10 @@ tras tres reentregas, Pulsar mueve el mensaje a la *dead letter queue*.
 
 ## Requisitos y ejecución
 
-El servicio usa el puerto **8001**. La documentación interactiva queda en
-<http://localhost:8001/docs> y las tablas se crean al arrancar.
+El servicio usa el puerto **8001** y crea sus tablas al arrancar. La documentación
+interactiva queda en <http://localhost/trabajos/docs> cuando corre en Docker (detrás de la
+entrada pública; ver el [README raíz](../README.md#despliegue-con-docker-y-entrada-pública)) y en
+<http://localhost:8001/docs> cuando corre local (opciones B y C).
 
 ### Opción A — Todo en Docker (recomendada)
 
