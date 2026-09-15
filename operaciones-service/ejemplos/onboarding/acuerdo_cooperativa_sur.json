@@ -1,0 +1,10 @@
+{
+  "nombre": "Cooperativa Sur",
+  "pais": "AR",
+  "red_de_proveedores": null,
+  "condiciones": [
+    {"tipo": "TOPE", "clave": "ORDEN", "valor": "800000"},
+    {"tipo": "SLA", "clave": "URGENTE", "valor": 24},
+    {"tipo": "SLA", "clave": "NORMAL", "valor": 72}
+  ]
+}

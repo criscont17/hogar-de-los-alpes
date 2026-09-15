@@ -52,7 +52,8 @@ class PulsarMessageBroker(MessageBroker):
             json.dumps(datos, ensure_ascii=False).encode("utf-8"),
             self._confirmacion(evento),
             properties=propiedades,
-            partition_key=datos.get("trabajo_id") or evento.nombre,
+            # Sin trabajo (creación rechazada) se agrupa por la referencia del partner.
+            partition_key=datos.get("trabajo_id") or datos.get("referencia_externa") or evento.nombre,
         )
 
     def cerrar(self) -> None:

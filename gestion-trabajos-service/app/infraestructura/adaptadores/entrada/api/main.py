@@ -6,7 +6,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.aplicacion.errores import ConflictoDeConcurrenciaError, PartnerNoRegistradoError
+from app.aplicacion.errores import ConflictoDeConcurrenciaError
 from app.dominio.errores import (
     MontoMaximoExcedidoError,
     ProveedorNoPermitidoError,
@@ -30,18 +30,14 @@ from app.infraestructura.configuracion import (
 from app.seedwork.aplicacion import ApplicationError
 from app.seedwork.dominio import DomainError
 
-from .rutas_partners import router as router_partners
 from .rutas_trabajos import router as router_trabajos
 
 logger = logging.getLogger("trabajos.api")
 
-# Starlette resuelve el handler recorriendo la jerarquía de la excepción, así que
-# el error más específico gana aunque su base también esté registrada.
+# Starlette resuelve el handler recorriendo la jerarquía de la excepción, así que el
+# error más específico gana aunque su base también esté registrada.
 ERRORES_POR_CODIGO: tuple[tuple[int, tuple[type[Exception], ...]], ...] = (
-    (
-        status.HTTP_404_NOT_FOUND,
-        (TrabajoNoEncontradoError, SubTrabajoNoEncontradoError, PartnerNoRegistradoError),
-    ),
+    (status.HTTP_404_NOT_FOUND, (TrabajoNoEncontradoError, SubTrabajoNoEncontradoError)),
     (
         status.HTTP_409_CONFLICT,
         (
@@ -69,21 +65,19 @@ def crear_app(*, inicializar_db: bool = True, iniciar_mensajeria: bool = True) -
         if inicializar_db:
             crear_tablas()
         consumidor = None
-        if iniciar_mensajeria:
-            contenedor.obtener_catalogo_partners().iniciar()
-            if PULSAR_CONSUMIR_COMANDOS:
-                consumidor = ConsumidorDeComandosPulsar(
-                    PULSAR_URL,
-                    PULSAR_TOPICO_COMANDOS,
-                    PULSAR_SUSCRIPCION_COMANDOS,
-                    EjecutorDeComandos(),
-                )
-                try:
-                    consumidor.iniciar()
-                except Exception:
-                    # Sin Pulsar la API REST sigue atendiendo; solo no llegan comandos.
-                    logger.exception("no se pudo iniciar el consumidor de comandos de Pulsar")
-                    consumidor = None
+        if iniciar_mensajeria and PULSAR_CONSUMIR_COMANDOS:
+            consumidor = ConsumidorDeComandosPulsar(
+                PULSAR_URL,
+                PULSAR_TOPICO_COMANDOS,
+                PULSAR_SUSCRIPCION_COMANDOS,
+                EjecutorDeComandos(),
+            )
+            try:
+                consumidor.iniciar()
+            except Exception:
+                # Sin Pulsar la API REST sigue atendiendo; solo no llegan comandos.
+                logger.exception("no se pudo iniciar el consumidor de comandos de Pulsar")
+                consumidor = None
         try:
             yield
         finally:
@@ -98,7 +92,6 @@ def crear_app(*, inicializar_db: bool = True, iniciar_mensajeria: bool = True) -
         lifespan=lifespan,
     )
     application.include_router(router_trabajos)
-    application.include_router(router_partners)
 
     for codigo, errores in ERRORES_POR_CODIGO:
         for error in errores:

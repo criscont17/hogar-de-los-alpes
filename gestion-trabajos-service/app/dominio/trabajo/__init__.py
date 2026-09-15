@@ -1,4 +1,4 @@
-from .acuerdo_comercial import AcuerdoComercial
+from .condiciones_del_trabajo import CondicionesDelTrabajo
 from .dinero import Dinero
 from .enums import CanalDeOrigen, Categoria, EstadoSubTrabajo, EstadoTrabajo, Urgencia
 from .identificadores import SubTrabajoId, TrabajoId
@@ -10,9 +10,9 @@ from .trabajo_factory import TrabajoFactory
 from .ubicacion import Ubicacion
 
 __all__ = [
-    "AcuerdoComercial",
     "CanalDeOrigen",
     "Categoria",
+    "CondicionesDelTrabajo",
     "Dinero",
     "EstadoSubTrabajo",
     "EstadoTrabajo",

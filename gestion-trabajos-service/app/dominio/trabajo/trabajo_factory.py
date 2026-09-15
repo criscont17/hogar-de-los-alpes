@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from datetime import datetime, timezone
 
-from .acuerdo_comercial import AcuerdoComercial
+from .condiciones_del_trabajo import CondicionesDelTrabajo
 from .enums import EstadoSubTrabajo, EstadoTrabajo, Urgencia
 from .eventos import DetalleSubTrabajo, TrabajoCreado
 from .flujo import ordenar_flujo
@@ -21,7 +21,7 @@ class TrabajoFactory:
         urgencia: Urgencia,
         ubicacion: Ubicacion,
         moneda: str,
-        acuerdo: AcuerdoComercial,
+        condiciones: CondicionesDelTrabajo,
         plan: Sequence[SubTrabajoPlaneado],
     ) -> Trabajo:
         """Construye el flujo del trabajo: lo que no depende de nada queda listo para
@@ -49,7 +49,7 @@ class TrabajoFactory:
             urgencia=urgencia,
             ubicacion=ubicacion,
             moneda=moneda,
-            acuerdo=acuerdo,
+            condiciones=condiciones,
             sub_trabajos=sub_trabajos,
             estado=EstadoTrabajo.CREADO,
             fecha_creacion=fecha,
@@ -66,8 +66,8 @@ class TrabajoFactory:
                 pais=ubicacion.pais,
                 ciudad=ubicacion.ciudad,
                 moneda=trabajo.moneda,
-                monto_maximo=acuerdo.monto_maximo.monto if acuerdo.monto_maximo else None,
-                sla_horas=acuerdo.sla_horas,
+                monto_maximo=condiciones.monto_maximo.monto if condiciones.monto_maximo else None,
+                sla_horas=condiciones.sla_horas,
                 sub_trabajos=tuple(
                     DetalleSubTrabajo(
                         sub_trabajo_id=str(sub.id),

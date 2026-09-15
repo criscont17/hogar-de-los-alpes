@@ -15,6 +15,7 @@ from typing import Any
 
 from app.aplicacion.eventos_integracion import (
     AsignacionRechazadaV1,
+    CreacionDeTrabajoRechazadaV1,
     ProveedorAsignadoV1,
     SubTrabajoCompletadoV1,
     SubTrabajoDesbloqueadoV1,
@@ -27,6 +28,7 @@ from app.aplicacion.eventos_integracion import (
 )
 from app.dominio.trabajo.eventos import (
     AsignacionRechazada,
+    CreacionDeTrabajoRechazada,
     DetalleSubTrabajo,
     EventoDeTrabajo,
     Liquidacion,
@@ -188,9 +190,23 @@ def _a_trabajo_cerrado_v1(evento: TrabajoCerrado) -> TrabajoCerradoV1:
     )
 
 
+def _a_creacion_de_trabajo_rechazada_v1(
+    evento: CreacionDeTrabajoRechazada,
+) -> CreacionDeTrabajoRechazadaV1:
+    return CreacionDeTrabajoRechazadaV1(
+        event_id=evento.event_id,
+        occurred_at=evento.occurred_at,
+        canal=evento.canal,
+        partner_id=evento.partner_id,
+        referencia_externa=evento.referencia_externa,
+        motivo=evento.motivo,
+    )
+
+
 Traductor = Callable[[DomainEvent], IntegrationEvent]
 
 TRADUCTORES: dict[type[DomainEvent], tuple[Traductor, ...]] = {
+    CreacionDeTrabajoRechazada: (_a_creacion_de_trabajo_rechazada_v1,),
     TrabajoCreado: (_a_trabajo_creado_v1, _a_trabajo_creado_v2),
     ProveedorAsignado: (_a_proveedor_asignado_v1,),
     AsignacionRechazada: (_a_asignacion_rechazada_v1,),

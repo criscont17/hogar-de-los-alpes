@@ -22,6 +22,7 @@ __pycache__/
 *.pyc
 wallet-service/app/data/*.db
 gestion-trabajos-service/app/data/*.db
+operaciones-service/app/data/*.db
 .env
 .venv/
 dist/

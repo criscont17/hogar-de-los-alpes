@@ -7,8 +7,8 @@ from app.aplicacion.dtos import (
     TrabajoDTO,
 )
 from app.dominio.trabajo import (
-    AcuerdoComercial,
     Categoria,
+    CondicionesDelTrabajo,
     Dinero,
     SubTrabajo,
     SubTrabajoPlaneado,
@@ -30,8 +30,10 @@ def trabajo_a_dto(trabajo: Trabajo) -> TrabajoDTO:
         moneda=trabajo.moneda,
         estado=trabajo.estado.value,
         costo_total=trabajo.costo_total.monto,
-        monto_maximo=trabajo.acuerdo.monto_maximo.monto if trabajo.acuerdo.monto_maximo else None,
-        sla_horas=trabajo.acuerdo.sla_horas,
+        monto_maximo=(
+            trabajo.condiciones.monto_maximo.monto if trabajo.condiciones.monto_maximo else None
+        ),
+        sla_horas=trabajo.condiciones.sla_horas,
         fecha_creacion=trabajo.fecha_creacion,
         sub_trabajos=tuple(sub_trabajo_a_dto(sub) for sub in trabajo.sub_trabajos),
     )
@@ -64,10 +66,10 @@ def plan_desde_solicitados(
     ]
 
 
-def acuerdo_desde_condiciones(
+def condiciones_desde_dto(
     condiciones: CondicionesDelAcuerdo, moneda: str
-) -> AcuerdoComercial:
-    return AcuerdoComercial(
+) -> CondicionesDelTrabajo:
+    return CondicionesDelTrabajo(
         monto_maximo=(
             Dinero(condiciones.monto_maximo, moneda)
             if condiciones.monto_maximo is not None

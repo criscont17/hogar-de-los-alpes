@@ -8,9 +8,9 @@ from sqlalchemy.orm.exc import StaleDataError
 from app.aplicacion.errores import ConflictoDeConcurrenciaError
 from app.dominio.errores import TrabajoDuplicadoError
 from app.dominio.trabajo import (
-    AcuerdoComercial,
     CanalDeOrigen,
     Categoria,
+    CondicionesDelTrabajo,
     Dinero,
     EstadoSubTrabajo,
     EstadoTrabajo,
@@ -121,7 +121,7 @@ class SqlAlchemyTrabajoRepository(TrabajoRepository):
 
     @staticmethod
     def _nuevo_modelo(trabajo: Trabajo) -> TrabajoModel:
-        acuerdo = trabajo.acuerdo
+        condiciones = trabajo.condiciones
         return TrabajoModel(
             id=trabajo.id.valor,
             canal=trabajo.origen.canal.value,
@@ -133,13 +133,13 @@ class SqlAlchemyTrabajoRepository(TrabajoRepository):
             ciudad=trabajo.ubicacion.ciudad,
             direccion=trabajo.ubicacion.direccion,
             moneda=trabajo.moneda,
-            monto_maximo=acuerdo.monto_maximo.monto if acuerdo.monto_maximo else None,
+            monto_maximo=condiciones.monto_maximo.monto if condiciones.monto_maximo else None,
             proveedores_permitidos=(
-                sorted(acuerdo.proveedores_permitidos)
-                if acuerdo.proveedores_permitidos is not None
+                sorted(condiciones.proveedores_permitidos)
+                if condiciones.proveedores_permitidos is not None
                 else None
             ),
-            sla_horas=acuerdo.sla_horas,
+            sla_horas=condiciones.sla_horas,
             fecha_creacion=trabajo.fecha_creacion,
             sub_trabajos=[],
         )
@@ -173,7 +173,7 @@ class SqlAlchemyTrabajoRepository(TrabajoRepository):
             urgencia=Urgencia(model.urgencia),
             ubicacion=Ubicacion(model.pais, model.ciudad, model.direccion),
             moneda=moneda,
-            acuerdo=AcuerdoComercial(
+            condiciones=CondicionesDelTrabajo(
                 monto_maximo=(
                     Dinero(model.monto_maximo, moneda) if model.monto_maximo is not None else None
                 ),

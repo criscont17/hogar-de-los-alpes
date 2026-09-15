@@ -76,21 +76,5 @@ class TrabajoResponseSchema(BaseModel):
     sub_trabajos: list[SubTrabajoResponseSchema]
 
 
-class SaludPartnerResponseSchema(BaseModel):
-    partner_id: str
-    circuito: str
-    fallos_consecutivos: int
-    pendientes: int
-    sincronizados: int
-    degradaciones: int
-    descartados: int
-    ultimo_error: str | None
-    core_disponible: bool
-
-
-class SimularPartnerRequestSchema(BaseModel):
-    disponible: bool
-
-
 class ErrorResponseSchema(BaseModel):
     detalle: str

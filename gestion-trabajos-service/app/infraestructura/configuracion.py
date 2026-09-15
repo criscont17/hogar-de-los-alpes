@@ -30,11 +30,6 @@ def _booleano(nombre: str, por_defecto: bool) -> bool:
     return valor.strip().lower() in {"1", "true", "si", "sí", "yes"}
 
 
-def _numero(nombre: str, por_defecto: float) -> float:
-    valor = os.getenv(nombre)
-    return por_defecto if valor is None else float(valor)
-
-
 DATABASE_URL = _texto(
     "DATABASE_URL",
     "postgresql+psycopg://trabajos:trabajos@localhost:5433/trabajos_db",
@@ -51,8 +46,3 @@ PULSAR_TOPICO_COMANDOS = _texto(
 )
 PULSAR_SUSCRIPCION_COMANDOS = _texto("PULSAR_SUSCRIPCION_COMANDOS", "gestion-trabajos")
 PULSAR_CONSUMIR_COMANDOS = _booleano("PULSAR_CONSUMIR_COMANDOS", False)
-
-# Resiliencia de la sincronización con cada partner B2B2C
-PARTNER_CB_UMBRAL_FALLOS = int(_numero("PARTNER_CB_UMBRAL_FALLOS", 3))
-PARTNER_CB_RECUPERACION_SEGUNDOS = _numero("PARTNER_CB_RECUPERACION_SEGUNDOS", 10.0)
-PARTNER_SINCRONIZACION_ASINCRONA = _booleano("PARTNER_SINCRONIZACION_ASINCRONA", True)

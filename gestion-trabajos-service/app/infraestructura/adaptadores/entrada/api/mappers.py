@@ -4,17 +4,11 @@ from app.aplicacion.comandos import (
     CerrarTrabajoCommand,
     CompletarSubTrabajoCommand,
     CrearTrabajoCommand,
-    CrearTrabajoDesdePartnerCommand,
     IniciarSubTrabajoCommand,
     RegistrarRediagnosticoCommand,
 )
 from app.aplicacion.dtos import SubTrabajoDTO, SubTrabajoSolicitado, TrabajoDTO
-from app.aplicacion.queries import (
-    ConsultarTrabajoDePartnerQuery,
-    ListarTrabajosQuery,
-    ObtenerTrabajoQuery,
-)
-from app.infraestructura.adaptadores.acl_partners import SaludDePartner
+from app.aplicacion.queries import ListarTrabajosQuery, ObtenerTrabajoQuery
 
 from .schemas import (
     AsignarProveedorRequestSchema,
@@ -22,7 +16,6 @@ from .schemas import (
     CompletarSubTrabajoRequestSchema,
     CrearTrabajoRequestSchema,
     RegistrarRediagnosticoRequestSchema,
-    SaludPartnerResponseSchema,
     SubTrabajoResponseSchema,
     TrabajoResponseSchema,
 )
@@ -46,10 +39,6 @@ def a_comando_crear(schema: CrearTrabajoRequestSchema) -> CrearTrabajoCommand:
         ),
         moneda=schema.moneda,
     )
-
-
-def a_comando_desde_partner(partner_id: str, contenido: str) -> CrearTrabajoDesdePartnerCommand:
-    return CrearTrabajoDesdePartnerCommand(partner_id=partner_id, contenido=contenido)
 
 
 def a_comando_asignar(
@@ -102,10 +91,6 @@ def a_query_listar(
     return ListarTrabajosQuery(estado=estado, partner_id=partner_id, limite=limite)
 
 
-def a_query_de_partner(partner_id: str, referencia_externa: str) -> ConsultarTrabajoDePartnerQuery:
-    return ConsultarTrabajoDePartnerQuery(partner_id, referencia_externa)
-
-
 def a_schema_trabajo(dto: TrabajoDTO) -> TrabajoResponseSchema:
     return TrabajoResponseSchema(
         id=dto.id,
@@ -137,18 +122,4 @@ def a_schema_sub_trabajo(dto: SubTrabajoDTO) -> SubTrabajoResponseSchema:
         proveedor_id=dto.proveedor_id,
         monto_cotizado=dto.monto_cotizado,
         evidencias=list(dto.evidencias),
-    )
-
-
-def a_schema_salud(salud: SaludDePartner, core_disponible: bool) -> SaludPartnerResponseSchema:
-    return SaludPartnerResponseSchema(
-        partner_id=salud.partner_id,
-        circuito=salud.circuito,
-        fallos_consecutivos=salud.fallos_consecutivos,
-        pendientes=salud.pendientes,
-        sincronizados=salud.sincronizados,
-        degradaciones=salud.degradaciones,
-        descartados=salud.descartados,
-        ultimo_error=salud.ultimo_error,
-        core_disponible=core_disponible,
     )

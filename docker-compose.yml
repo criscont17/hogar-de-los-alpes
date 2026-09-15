@@ -33,10 +33,12 @@ services:
       - trabajos_postgres_data:/var/lib/postgresql/data
 
   # Apache Pulsar en modo standalone para eventos y comandos entre bounded contexts.
-  # Sin volumen: los tópicos se recrean al levantarlo, suficiente para la POC.
+  # Arranca siempre con datos limpios: al reiniciar un standalone en Docker su bookie
+  # cambia de dirección y no puede recuperar los ledgers anteriores. Para la POC basta;
+  # los servicios vuelven a crear sus suscripciones al reconectarse.
   pulsar:
     image: apachepulsar/pulsar:4.0.13
-    command: bin/pulsar standalone
+    command: ["bash", "-c", "rm -rf /pulsar/data/* && exec bin/pulsar standalone"]
     ports:
       - "6650:6650"
       - "8080:8080"
@@ -64,6 +66,42 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Base propia de OperacionesBC: partners, acuerdos comerciales y vista de sus trabajos.
+  postgres-operaciones:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: operaciones_db
+      POSTGRES_USER: operaciones
+      POSTGRES_PASSWORD: operaciones
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U operaciones -d operaciones_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - operaciones_postgres_data:/var/lib/postgresql/data
+
+  # OperacionesBC: partners B2B2C y capa anti-corrupción. Habla con GestionDeTrabajosBC
+  # solo por Pulsar (comando CrearTrabajoV1 y eventos de trabajo).
+  operaciones:
+    build: ./operaciones-service
+    environment:
+      DATABASE_URL: postgresql+psycopg://operaciones:operaciones@postgres-operaciones:5432/operaciones_db
+      MESSAGE_BROKER: pulsar
+      PULSAR_URL: pulsar://pulsar:6650
+      PULSAR_CONSUMIR_EVENTOS: "true"
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres-operaciones:
+        condition: service_healthy
+      pulsar:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   wallet_postgres_data:
   trabajos_postgres_data:
+  operaciones_postgres_data:

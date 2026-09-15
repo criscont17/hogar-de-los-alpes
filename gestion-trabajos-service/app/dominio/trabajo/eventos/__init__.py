@@ -1,4 +1,5 @@
 from .asignacion_rechazada import AsignacionRechazada
+from .creacion_de_trabajo_rechazada import CreacionDeTrabajoRechazada
 from .evento_de_trabajo import DetalleSubTrabajo, EventoDeTrabajo, Liquidacion
 from .proveedor_asignado import ProveedorAsignado
 from .sub_trabajo_completado import SubTrabajoCompletado
@@ -11,6 +12,7 @@ from .trabajo_rediagnosticado import TrabajoRediagnosticado
 
 __all__ = [
     "AsignacionRechazada",
+    "CreacionDeTrabajoRechazada",
     "DetalleSubTrabajo",
     "EventoDeTrabajo",
     "Liquidacion",

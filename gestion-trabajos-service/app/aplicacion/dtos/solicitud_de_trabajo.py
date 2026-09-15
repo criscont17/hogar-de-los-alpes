@@ -1,11 +1,6 @@
-"""Modelo canónico de entrada: lo que cualquier canal entrega para crear un trabajo.
+"""Piezas del modelo canónico con que cualquier canal pide crear un trabajo."""
 
-Es el idioma común de la capa anti-corrupción. Cada partner envía su propio JSON,
-SOAP o webhook; su adaptador siempre produce una `SolicitudDeTrabajo`, y el caso de
-uso de creación no distingue de qué partner vino.
-"""
-
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal
 
 
@@ -19,21 +14,12 @@ class SubTrabajoSolicitado:
 
 @dataclass(frozen=True)
 class CondicionesDelAcuerdo:
-    """Reglas del partner ya resueltas a términos canónicos."""
+    """Condiciones del acuerdo comercial ya resueltas a términos canónicos.
+
+    Las resuelve OperacionesBC, dueño de los acuerdos con los partners. Marketplace no
+    envía ninguna.
+    """
 
     monto_maximo: Decimal | None = None
     proveedores_permitidos: frozenset[str] | None = None
     sla_horas: int | None = None
-
-
-@dataclass(frozen=True)
-class SolicitudDeTrabajo:
-    referencia_externa: str
-    descripcion: str
-    urgencia: str
-    pais: str
-    ciudad: str
-    direccion: str
-    moneda: str
-    sub_trabajos: tuple[SubTrabajoSolicitado, ...]
-    condiciones: CondicionesDelAcuerdo = field(default_factory=CondicionesDelAcuerdo)

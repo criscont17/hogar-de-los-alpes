@@ -15,16 +15,22 @@ probar sus endpoints.
 ## Implementación GestionDeTrabajosBC
 
 El núcleo del sistema, el motor del ciclo de vida de los trabajos, se encuentra en
-`gestion-trabajos-service/`. Usa la misma arquitectura que WalletBC (DDD, hexagonal y CQS)
-y agrega:
+`gestion-trabajos-service/`. Usa la misma arquitectura que WalletBC (DDD, hexagonal y CQS),
+publica eventos de integración versionados y recibe comandos por Apache Pulsar. No conoce a
+ningún partner. Consulte
+[`gestion-trabajos-service/README.md`](gestion-trabajos-service/README.md).
 
-- eventos y comandos sobre Apache Pulsar;
-- una capa anti-corrupción con un adaptador por partner B2B2C (REST propio, SOAP y webhooks);
-- circuit breaker por partner;
-- eventos de integración versionados.
+## Implementación OperacionesBC
 
-Así cumple los escenarios de calidad de Interoperabilidad (#9) y Modificabilidad (#3).
-Consulte [`gestion-trabajos-service/README.md`](gestion-trabajos-service/README.md).
+La relación con los partners B2B2C se encuentra en `operaciones-service/`:
+
+- los acuerdos comerciales (agregado `Partner`);
+- la capa anti-corrupción, con un adaptador por formato (REST propio, SOAP, webhooks);
+- el circuit breaker por partner.
+
+Se comunica con GestionDeTrabajosBC solo por Pulsar. Juntos demuestran los escenarios de
+calidad de Interoperabilidad (#9) y Modificabilidad (#3). Consulte
+[`operaciones-service/README.md`](operaciones-service/README.md) y su colección Postman.
 
 ---
 
@@ -65,12 +71,19 @@ hogar-de-los-alpes/
 │   ├── README.md                      # Arquitectura, escenarios de calidad, Pulsar y API
 │   ├── Dockerfile                     # Imagen del servicio (se despliega con docker compose)
 │   ├── requirements.txt               # Dependencias Python del servicio
-│   ├── collections/                   # Colección Postman (escenarios de calidad)
-│   ├── ejemplos/onboarding/           # Partner de ejemplo para demostrar el onboarding
+│   ├── collections/                   # Colección Postman del motor de trabajos
 │   ├── scripts/                       # Publicar comandos y escuchar eventos en Pulsar
 │   └── app/                           # seedwork/ dominio/ aplicacion/ infraestructura/
+│
+├── operaciones-service/               # Microservicio OperacionesBC (partners B2B2C)
+│   ├── README.md                      # Acuerdos, capa anti-corrupción y decisiones
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── collections/                   # Colección Postman de los escenarios de calidad
+│   ├── ejemplos/onboarding/           # Partner de ejemplo para demostrar el onboarding
+│   └── app/                           # seedwork/ dominio/ aplicacion/ infraestructura/
 │                                      # (incluye acl_partners/: capa anti-corrupción)
-├── docker-compose.yml                 # PostgreSQL de cada servicio, Apache Pulsar y GestionDeTrabajosBC
+├── docker-compose.yml                 # PostgreSQL de cada servicio, Apache Pulsar y los servicios
 │
 └── docs/                              # Documentación de arquitectura y diseño
     └── semana-2/                      # Entregables Semana 2: Diseño Estratégico DDD

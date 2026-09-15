@@ -13,21 +13,14 @@ from app.aplicacion.comandos import (
     CompletarSubTrabajoCommand,
     CompletarSubTrabajoHandler,
     CrearTrabajoCommand,
-    CrearTrabajoDesdePartnerCommand,
-    CrearTrabajoDesdePartnerHandler,
     CrearTrabajoHandler,
     IniciarSubTrabajoCommand,
     IniciarSubTrabajoHandler,
     RegistrarRediagnosticoCommand,
     RegistrarRediagnosticoHandler,
 )
-from app.aplicacion.queries import (
-    ConsultarTrabajoDePartnerHandler,
-    ListarTrabajosHandler,
-    ObtenerTrabajoHandler,
-)
+from app.aplicacion.queries import ListarTrabajosHandler, ObtenerTrabajoHandler
 from app.infraestructura import contenedor
-from app.infraestructura.adaptadores.acl_partners import CatalogoDePartnersEnMemoria
 from app.infraestructura.adaptadores.salida.persistencia.db import obtener_sesion
 from app.infraestructura.adaptadores.salida.persistencia.sqlalchemy_trabajo_repository import (
     SqlAlchemyTrabajoRepository,
@@ -36,10 +29,6 @@ from app.infraestructura.adaptadores.salida.persistencia.sqlalchemy_trabajo_repo
 
 def obtener_repo(session: Session = Depends(obtener_sesion)) -> SqlAlchemyTrabajoRepository:
     return SqlAlchemyTrabajoRepository(session)
-
-
-def obtener_catalogo() -> CatalogoDePartnersEnMemoria:
-    return contenedor.obtener_catalogo_partners()
 
 
 def obtener_handlers_de_comandos(
@@ -52,12 +41,6 @@ def obtener_handlers_de_comandos(
 
 def obtener_crear_handler(handlers=Depends(obtener_handlers_de_comandos)) -> CrearTrabajoHandler:
     return handlers[CrearTrabajoCommand]
-
-
-def obtener_crear_desde_partner_handler(
-    handlers=Depends(obtener_handlers_de_comandos),
-) -> CrearTrabajoDesdePartnerHandler:
-    return handlers[CrearTrabajoDesdePartnerCommand]
 
 
 def obtener_asignar_handler(
@@ -100,10 +83,3 @@ def obtener_trabajo_handler(repo=Depends(obtener_repo)) -> ObtenerTrabajoHandler
 
 def obtener_listar_handler(repo=Depends(obtener_repo)) -> ListarTrabajosHandler:
     return ListarTrabajosHandler(repo)
-
-
-def obtener_consultar_de_partner_handler(
-    repo=Depends(obtener_repo),
-    catalogo: CatalogoDePartnersEnMemoria = Depends(obtener_catalogo),
-) -> ConsultarTrabajoDePartnerHandler:
-    return ConsultarTrabajoDePartnerHandler(repo, catalogo)

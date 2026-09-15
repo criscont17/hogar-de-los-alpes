@@ -14,7 +14,7 @@ from app.dominio.errores import (
 )
 from app.seedwork.dominio import AggregateRoot
 
-from .acuerdo_comercial import AcuerdoComercial
+from .condiciones_del_trabajo import CondicionesDelTrabajo
 from .dinero import Dinero
 from .enums import Categoria, EstadoSubTrabajo, EstadoTrabajo, Urgencia
 from .eventos import (
@@ -37,9 +37,9 @@ from .ubicacion import Ubicacion
 class Trabajo(AggregateRoot[TrabajoId]):
     """Raíz del ciclo de vida de un trabajo, sea cual sea su canal de origen.
 
-    Es la única puerta para cambiar sus sub-trabajos: así garantiza que un bloqueo
-    solo se levanta cuando terminan todas sus dependencias y que ninguna asignación
-    rompe el acuerdo comercial con el que se creó el trabajo.
+    Es la única puerta para cambiar sus sub-trabajos: así garantiza que un bloqueo solo se
+    levanta cuando terminan todas sus dependencias y que ninguna asignación rompe las
+    condiciones con que se creó el trabajo.
     """
 
     def __init__(
@@ -50,7 +50,7 @@ class Trabajo(AggregateRoot[TrabajoId]):
         urgencia: Urgencia,
         ubicacion: Ubicacion,
         moneda: str,
-        acuerdo: AcuerdoComercial,
+        condiciones: CondicionesDelTrabajo,
         sub_trabajos: Iterable[SubTrabajo],
         estado: EstadoTrabajo,
         fecha_creacion: datetime,
@@ -65,9 +65,9 @@ class Trabajo(AggregateRoot[TrabajoId]):
         self.urgencia = urgencia
         self.ubicacion = ubicacion
         self._sin_costo = Dinero(Decimal("0"), moneda)
-        if acuerdo.monto_maximo is not None:
-            acuerdo.monto_maximo.validar_misma_moneda(self._sin_costo)
-        self.acuerdo = acuerdo
+        if condiciones.monto_maximo is not None:
+            condiciones.monto_maximo.validar_misma_moneda(self._sin_costo)
+        self.condiciones = condiciones
         self._sub_trabajos = list(sub_trabajos)
         if not self._sub_trabajos:
             raise DatosDelTrabajoInvalidosError("Un trabajo requiere al menos un sub-trabajo")
@@ -109,15 +109,15 @@ class Trabajo(AggregateRoot[TrabajoId]):
             raise MontoInvalidoError("La cotización debe ser mayor que cero")
         monto_cotizado.validar_misma_moneda(self._sin_costo)
 
-        if not self.acuerdo.admite_proveedor(proveedor_id):
-            motivo = "El proveedor no pertenece a la red permitida por el acuerdo"
+        if not self.condiciones.admite_proveedor(proveedor_id):
+            motivo = "El proveedor no pertenece a la red permitida para el trabajo"
             self._rechazar_asignacion(sub_trabajo, proveedor_id, monto_cotizado, motivo)
             raise ProveedorNoPermitidoError(motivo)
         costo_proyectado = self._costo_excluyendo(sub_trabajo).sumar(monto_cotizado)
-        if not self.acuerdo.admite_costo(costo_proyectado):
+        if not self.condiciones.admite_costo(costo_proyectado):
             motivo = (
                 f"El costo proyectado {costo_proyectado.monto} {self.moneda} supera el "
-                f"monto máximo del acuerdo ({self.acuerdo.monto_maximo.monto} {self.moneda})"
+                f"monto máximo del trabajo ({self.condiciones.monto_maximo.monto} {self.moneda})"
             )
             self._rechazar_asignacion(sub_trabajo, proveedor_id, monto_cotizado, motivo)
             raise MontoMaximoExcedidoError(motivo)
