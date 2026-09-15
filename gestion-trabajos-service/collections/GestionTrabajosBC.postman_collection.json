@@ -1,0 +1,946 @@
+{
+  "info": {
+    "_postman_id": "6d2a9e41-3b7c-4f15-8c0e-2f4a1d9b7e62",
+    "name": "GestionDeTrabajosBC — Hogar de los Alpes",
+    "description": "Colección del motor de trabajos (core domain).\n\n1. **Flujo Marketplace**: dependencias, desbloqueo automático, re-diagnóstico y cierre.\n2. **Casos de error** de las reglas del agregado `Trabajo`.\n\nLos escenarios de calidad con partners B2B2C están en la colección de `operaciones-service/collections/`.\n\nAntes de ejecutar, levante el servicio (desde la raíz del repositorio):\n\n    docker compose up -d --build --wait gestion-trabajos",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8001",
+      "type": "string"
+    },
+    {
+      "key": "proveedor_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "trabajo_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "plomeria_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "pintura_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "electricidad_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "error_trabajo_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "error_plomeria_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "error_pintura_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "01 Flujo Marketplace",
+      "item": [
+        {
+          "name": "Crear trabajo (plomería → pintura)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('proveedor_id', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 201', () => pm.response.to.have.status(201));",
+                  "const t = pm.response.json();",
+                  "const sub = c => t.sub_trabajos.find(s => s.categoria === c);",
+                  "pm.collectionVariables.set('trabajo_id', t.id);",
+                  "pm.collectionVariables.set('plomeria_id', sub('Plomeria').id);",
+                  "pm.collectionVariables.set('pintura_id', sub('Pintura').id);",
+                  "pm.test('canal Marketplace', () => pm.expect(t.canal).to.eql('Marketplace'));",
+                  "pm.test('plomería arranca de inmediato', () => pm.expect(sub('Plomeria').estado).to.eql('Pendiente'));",
+                  "pm.test('pintura espera a plomería', () => pm.expect(sub('Pintura').estado).to.eql('Bloqueado'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/trabajos",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos"
+              ]
+            },
+            "description": "Construye el flujo: lo que no tiene dependencias queda `Pendiente` y lo demás `Bloqueado`. Publica `TrabajoCreadoV1` (deprecado) y `TrabajoCreadoV2`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"descripcion\": \"Humedad en el muro de la cocina\",\n  \"urgencia\": \"Alta\",\n  \"ubicacion\": {\n    \"pais\": \"CO\",\n    \"ciudad\": \"Bogota\",\n    \"direccion\": \"Calle 80 # 20-10\"\n  },\n  \"moneda\": \"COP\",\n  \"sub_trabajos\": [\n    {\n      \"clave\": \"plomeria\",\n      \"categoria\": \"Plomeria\",\n      \"descripcion\": \"Reparar la fuga\"\n    },\n    {\n      \"clave\": \"pintura\",\n      \"categoria\": \"Pintura\",\n      \"descripcion\": \"Resanar y pintar\",\n      \"depende_de\": [\n        \"plomeria\"\n      ]\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Asignar proveedor a plomeria",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "const sub = c => t.sub_trabajos.find(s => s.categoria === c);",
+                  "pm.test('queda asignado', () => pm.expect(sub('Plomeria').estado).to.eql('Asignado'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/trabajos/{{trabajo_id}}/sub-trabajos/{{plomeria_id}}/asignar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{trabajo_id}}",
+                "sub-trabajos",
+                "{{plomeria_id}}",
+                "asignar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"proveedor_id\": \"{{proveedor_id}}\",\n  \"monto_cotizado\": \"180000.00\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Iniciar plomeria",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "const sub = c => t.sub_trabajos.find(s => s.categoria === c);",
+                  "pm.test('en ejecución', () => pm.expect(sub('Plomeria').estado).to.eql('EnEjecucion'));",
+                  "pm.test('el trabajo está en ejecución', () => pm.expect(t.estado).to.eql('EnEjecucion'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/trabajos/{{trabajo_id}}/sub-trabajos/{{plomeria_id}}/iniciar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{trabajo_id}}",
+                "sub-trabajos",
+                "{{plomeria_id}}",
+                "iniciar"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Completar plomeria con evidencia",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "const sub = c => t.sub_trabajos.find(s => s.categoria === c);",
+                  "pm.test('completado', () => pm.expect(sub('Plomeria').estado).to.eql('Completado'));",
+                  "pm.test('pintura se desbloquea sola', () => pm.expect(sub('Pintura').estado).to.eql('Pendiente'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/trabajos/{{trabajo_id}}/sub-trabajos/{{plomeria_id}}/completar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{trabajo_id}}",
+                "sub-trabajos",
+                "{{plomeria_id}}",
+                "completar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"evidencias\": [\n    \"https://evidencias.hda/plomeria-antes.jpg\",\n    \"https://evidencias.hda/plomeria-despues.jpg\"\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Re-diagnóstico: cableado expuesto",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "const sub = c => t.sub_trabajos.find(s => s.categoria === c);",
+                  "pm.collectionVariables.set('electricidad_id', sub('Electricidad').id);",
+                  "pm.test('se agrega electricidad lista para asignar', () => pm.expect(sub('Electricidad').estado).to.eql('Pendiente'));",
+                  "pm.test('pintura queda congelada', () => pm.expect(sub('Pintura').estado).to.eql('Bloqueado'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/trabajos/{{trabajo_id}}/rediagnosticar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{trabajo_id}}",
+                "rediagnosticar"
+              ]
+            },
+            "description": "La naturaleza del trabajo cambia en plena ejecución. Publica `TrabajoRediagnosticadoV1`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"hallazgo\": \"Al retirar el pañete apareció cableado expuesto por la humedad\",\n  \"categoria\": \"Electricidad\",\n  \"descripcion\": \"Reemplazar el cableado del muro\",\n  \"bloquea_a\": [\n    \"{{pintura_id}}\"\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Asignar proveedor a electricidad",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "const sub = c => t.sub_trabajos.find(s => s.categoria === c);",
+                  "pm.test('queda asignado', () => pm.expect(sub('Electricidad').estado).to.eql('Asignado'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/trabajos/{{trabajo_id}}/sub-trabajos/{{electricidad_id}}/asignar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{trabajo_id}}",
+                "sub-trabajos",
+                "{{electricidad_id}}",
+                "asignar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"proveedor_id\": \"{{proveedor_id}}\",\n  \"monto_cotizado\": \"120000.00\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Iniciar electricidad",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "const sub = c => t.sub_trabajos.find(s => s.categoria === c);",
+                  "pm.test('en ejecución', () => pm.expect(sub('Electricidad').estado).to.eql('EnEjecucion'));",
+                  "pm.test('el trabajo está en ejecución', () => pm.expect(t.estado).to.eql('EnEjecucion'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/trabajos/{{trabajo_id}}/sub-trabajos/{{electricidad_id}}/iniciar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{trabajo_id}}",
+                "sub-trabajos",
+                "{{electricidad_id}}",
+                "iniciar"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Completar electricidad con evidencia",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "const sub = c => t.sub_trabajos.find(s => s.categoria === c);",
+                  "pm.test('completado', () => pm.expect(sub('Electricidad').estado).to.eql('Completado'));",
+                  "pm.test('pintura vuelve a quedar libre', () => pm.expect(sub('Pintura').estado).to.eql('Pendiente'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/trabajos/{{trabajo_id}}/sub-trabajos/{{electricidad_id}}/completar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{trabajo_id}}",
+                "sub-trabajos",
+                "{{electricidad_id}}",
+                "completar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"evidencias\": [\n    \"https://evidencias.hda/electricidad-antes.jpg\",\n    \"https://evidencias.hda/electricidad-despues.jpg\"\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Asignar proveedor a pintura",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "const sub = c => t.sub_trabajos.find(s => s.categoria === c);",
+                  "pm.test('queda asignado', () => pm.expect(sub('Pintura').estado).to.eql('Asignado'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/trabajos/{{trabajo_id}}/sub-trabajos/{{pintura_id}}/asignar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{trabajo_id}}",
+                "sub-trabajos",
+                "{{pintura_id}}",
+                "asignar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"proveedor_id\": \"{{proveedor_id}}\",\n  \"monto_cotizado\": \"95000.00\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Iniciar pintura",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "const sub = c => t.sub_trabajos.find(s => s.categoria === c);",
+                  "pm.test('en ejecución', () => pm.expect(sub('Pintura').estado).to.eql('EnEjecucion'));",
+                  "pm.test('el trabajo está en ejecución', () => pm.expect(t.estado).to.eql('EnEjecucion'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/trabajos/{{trabajo_id}}/sub-trabajos/{{pintura_id}}/iniciar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{trabajo_id}}",
+                "sub-trabajos",
+                "{{pintura_id}}",
+                "iniciar"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Completar pintura con evidencia",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "const sub = c => t.sub_trabajos.find(s => s.categoria === c);",
+                  "pm.test('completado', () => pm.expect(sub('Pintura').estado).to.eql('Completado'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/trabajos/{{trabajo_id}}/sub-trabajos/{{pintura_id}}/completar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{trabajo_id}}",
+                "sub-trabajos",
+                "{{pintura_id}}",
+                "completar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"evidencias\": [\n    \"https://evidencias.hda/pintura-antes.jpg\",\n    \"https://evidencias.hda/pintura-despues.jpg\"\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Cerrar trabajo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "const sub = c => t.sub_trabajos.find(s => s.categoria === c);",
+                  "pm.test('queda cerrado', () => pm.expect(t.estado).to.eql('Cerrado'));",
+                  "pm.test('costo total 395.000', () => pm.expect(Number(t.costo_total)).to.eql(395000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/trabajos/{{trabajo_id}}/cerrar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{trabajo_id}}",
+                "cerrar"
+              ]
+            },
+            "description": "Hecho pivote: publica `TrabajoCerradoV1` con la liquidación de cada proveedor para PagosBC."
+          }
+        },
+        {
+          "name": "Consultar trabajo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "const sub = c => t.sub_trabajos.find(s => s.categoria === c);",
+                  "pm.test('tres sub-trabajos', () => pm.expect(t.sub_trabajos.length).to.eql(3));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/trabajos/{{trabajo_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{trabajo_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Listar trabajos cerrados",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('incluye el trabajo', () => pm.expect(pm.response.json().map(t => t.id)).to.include(pm.collectionVariables.get('trabajo_id')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/trabajos?estado=Cerrado",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos"
+              ],
+              "query": [
+                {
+                  "key": "estado",
+                  "value": "Cerrado"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Casos de error",
+      "item": [
+        {
+          "name": "Preparación: trabajo para los casos de error",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 201', () => pm.response.to.have.status(201));",
+                  "const t = pm.response.json();",
+                  "const sub = c => t.sub_trabajos.find(s => s.categoria === c);",
+                  "pm.collectionVariables.set('error_trabajo_id', t.id);",
+                  "pm.collectionVariables.set('error_plomeria_id', sub('Plomeria').id);",
+                  "pm.collectionVariables.set('error_pintura_id', sub('Pintura').id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/trabajos",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"descripcion\": \"Trabajo de prueba de errores\",\n  \"urgencia\": \"Alta\",\n  \"ubicacion\": {\n    \"pais\": \"CO\",\n    \"ciudad\": \"Bogota\",\n    \"direccion\": \"Calle 80 # 20-10\"\n  },\n  \"moneda\": \"COP\",\n  \"sub_trabajos\": [\n    {\n      \"clave\": \"plomeria\",\n      \"categoria\": \"Plomeria\",\n      \"descripcion\": \"Reparar la fuga\"\n    },\n    {\n      \"clave\": \"pintura\",\n      \"categoria\": \"Pintura\",\n      \"descripcion\": \"Resanar y pintar\",\n      \"depende_de\": [\n        \"plomeria\"\n      ]\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Trabajo inexistente → 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/trabajos/00000000-0000-4000-8000-000000000000",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos",
+                "00000000-0000-4000-8000-000000000000"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Iniciar un sub-trabajo bloqueado → 409",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('explica el motivo', () => pm.expect(pm.response.json().detalle).to.include('dependencias'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/trabajos/{{error_trabajo_id}}/sub-trabajos/{{error_pintura_id}}/iniciar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{error_trabajo_id}}",
+                "sub-trabajos",
+                "{{error_pintura_id}}",
+                "iniciar"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Cerrar con sub-trabajos pendientes → 409",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('explica el motivo', () => pm.expect(pm.response.json().detalle).to.include('faltan'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/trabajos/{{error_trabajo_id}}/cerrar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{error_trabajo_id}}",
+                "cerrar"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Preparación: asignar plomería",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/trabajos/{{error_trabajo_id}}/sub-trabajos/{{error_plomeria_id}}/asignar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{error_trabajo_id}}",
+                "sub-trabajos",
+                "{{error_plomeria_id}}",
+                "asignar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"proveedor_id\": \"{{proveedor_id}}\",\n  \"monto_cotizado\": \"100000.00\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Preparación: iniciar plomería",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/trabajos/{{error_trabajo_id}}/sub-trabajos/{{error_plomeria_id}}/iniciar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{error_trabajo_id}}",
+                "sub-trabajos",
+                "{{error_plomeria_id}}",
+                "iniciar"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Completar sin evidencia → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 400', () => pm.response.to.have.status(400));",
+                  "pm.test('explica el motivo', () => pm.expect(pm.response.json().detalle).to.include('evidencia'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/trabajos/{{error_trabajo_id}}/sub-trabajos/{{error_plomeria_id}}/completar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{error_trabajo_id}}",
+                "sub-trabajos",
+                "{{error_plomeria_id}}",
+                "completar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"evidencias\": []\n}"
+            }
+          }
+        },
+        {
+          "name": "Flujo con dependencias en ciclo → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 400', () => pm.response.to.have.status(400));",
+                  "pm.test('explica el motivo', () => pm.expect(pm.response.json().detalle).to.include('ciclo'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/trabajos",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos"
+              ]
+            },
+            "description": "Además de responder 400, publica `CreacionDeTrabajoRechazadaV1`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"descripcion\": \"Flujo imposible\",\n  \"urgencia\": \"Baja\",\n  \"ubicacion\": {\n    \"pais\": \"CO\",\n    \"ciudad\": \"Cali\",\n    \"direccion\": \"Calle 5 # 3-2\"\n  },\n  \"sub_trabajos\": [\n    {\n      \"clave\": \"a\",\n      \"categoria\": \"Plomeria\",\n      \"descripcion\": \"A\",\n      \"depende_de\": [\n        \"b\"\n      ]\n    },\n    {\n      \"clave\": \"b\",\n      \"categoria\": \"Pintura\",\n      \"descripcion\": \"B\",\n      \"depende_de\": [\n        \"a\"\n      ]\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Categoría inexistente → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/trabajos",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trabajos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"descripcion\": \"Cambio de chapa\",\n  \"urgencia\": \"Media\",\n  \"ubicacion\": {\n    \"pais\": \"CO\",\n    \"ciudad\": \"Cali\",\n    \"direccion\": \"Calle 5 # 3-2\"\n  },\n  \"sub_trabajos\": [\n    {\n      \"clave\": \"a\",\n      \"categoria\": \"Cerrajeria\",\n      \"descripcion\": \"Cambiar chapa\"\n    }\n  ]\n}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

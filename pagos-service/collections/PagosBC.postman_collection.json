@@ -1,0 +1,327 @@
+{
+  "info": {
+    "_postman_id": "7d3a6f10-4b2c-4a9e-9c1d-2e8f5a6b7c9d",
+    "name": "PagosBC — Hogar de los Alpes",
+    "description": "Colección de pruebas del microservicio de pagos (checkout al cliente y pagos a proveedores).\n\nEstá pensada para ejecutarse completa con el Collection Runner: cada corrida genera un `trabajo_id` y referencias externas nuevas, así que el estado siempre arranca limpio.\n\nOrden sugerido:\n\n1. Checkout principal — cobra un trabajo en COP (Wompi por defecto) y queda Confirmado\n2. PSP alterno — el mismo checkout pero forzando PayU Colombia\n3. Resiliencia — referencias con sufijo `-RECHAZAR` (declina el PSP) y `-TIMEOUT` (pasa a conciliación diferida)\n4. Casos de error — moneda sin PSP registrado (MXN) y pago inexistente\n\nAntes de ejecutar, levante el servicio:\n\n    cd pagos-service\n    uvicorn app.infraestructura.adaptadores.entrada.api.main:app --reload --port 8003",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8003", "type": "string" },
+    { "key": "trabajo_id", "value": "", "type": "string" },
+    { "key": "referencia_externa", "value": "", "type": "string" },
+    { "key": "pago_id", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "01 Checkout principal",
+      "item": [
+        {
+          "name": "Crear pago (COP, Wompi por defecto)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('trabajo_id', 'trabajo-' + pm.variables.replaceIn('{{$guid}}'));",
+                  "pm.collectionVariables.set('referencia_externa', 'checkout-' + pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 201', () => pm.response.to.have.status(201));",
+                  "const p = pm.response.json();",
+                  "pm.collectionVariables.set('pago_id', p.id);",
+                  "pm.test('queda Confirmado', () => pm.expect(p.estado).to.eql('Confirmado'));",
+                  "pm.test('resuelto por Wompi (PSP por defecto en COP)', () => pm.expect(p.psp).to.eql('wompi-colombia'));",
+                  "pm.test('trae referencia del PSP', () => pm.expect(p.referencia_psp).to.be.a('string').and.not.empty);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"trabajo_id\": \"{{trabajo_id}}\",\n  \"monto\": \"150000.00\",\n  \"moneda\": \"COP\",\n  \"referencia_externa\": \"{{referencia_externa}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pagos",
+              "host": ["{{base_url}}"],
+              "path": ["pagos"]
+            },
+            "description": "Checkout del cliente. Sin `psp` explícito, se resuelve por moneda: COP -> Wompi Colombia."
+          }
+        },
+        {
+          "name": "Reintentar el mismo checkout (idempotencia)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 201', () => pm.response.to.have.status(201));",
+                  "pm.test('devuelve el mismo pago (no duplica)', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('pago_id')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"trabajo_id\": \"{{trabajo_id}}\",\n  \"monto\": \"150000.00\",\n  \"moneda\": \"COP\",\n  \"referencia_externa\": \"{{referencia_externa}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pagos",
+              "host": ["{{base_url}}"],
+              "path": ["pagos"]
+            },
+            "description": "Misma `referencia_externa`: por idempotencia devuelve el pago ya existente en vez de cobrar dos veces."
+          }
+        },
+        {
+          "name": "Obtener pago por id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('es el pago del checkout', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('pago_id')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/pagos/{{pago_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["pagos", "{{pago_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Listar pagos del trabajo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('trae exactamente un pago', () => pm.expect(pm.response.json().length).to.eql(1));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/pagos?trabajo_id={{trabajo_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["pagos"],
+              "query": [{ "key": "trabajo_id", "value": "{{trabajo_id}}" }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 PSP alterno",
+      "item": [
+        {
+          "name": "Crear pago forzando PayU Colombia",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('trabajo_id', 'trabajo-' + pm.variables.replaceIn('{{$guid}}'));",
+                  "pm.collectionVariables.set('referencia_externa', 'checkout-payu-' + pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 201', () => pm.response.to.have.status(201));",
+                  "const p = pm.response.json();",
+                  "pm.test('usa el PSP pedido', () => pm.expect(p.psp).to.eql('payu-colombia'));",
+                  "pm.test('queda Confirmado', () => pm.expect(p.estado).to.eql('Confirmado'));",
+                  "pm.test('referencia con el prefijo de PayU', () => pm.expect(p.referencia_psp).to.include('payu-order-'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"trabajo_id\": \"{{trabajo_id}}\",\n  \"monto\": \"90000.00\",\n  \"moneda\": \"COP\",\n  \"referencia_externa\": \"{{referencia_externa}}\",\n  \"psp\": \"payu-colombia\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pagos",
+              "host": ["{{base_url}}"],
+              "path": ["pagos"]
+            },
+            "description": "Incorporar/forzar un PSP no requiere cambios en el agregado Pago: solo se declara en `acl_psp/registro.py` y se puede pedir explícitamente."
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Resiliencia (Interoperabilidad #7)",
+      "item": [
+        {
+          "name": "El PSP rechaza la operación",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('trabajo_id', 'trabajo-' + pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 201 (el pago se crea, aunque quede rechazado)', () => pm.response.to.have.status(201));",
+                  "const p = pm.response.json();",
+                  "pm.test('queda Rechazado', () => pm.expect(p.estado).to.eql('Rechazado'));",
+                  "pm.test('trae motivo del PSP', () => pm.expect(p.motivo).to.be.a('string').and.not.empty);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"trabajo_id\": \"{{trabajo_id}}\",\n  \"monto\": \"50000.00\",\n  \"moneda\": \"COP\",\n  \"referencia_externa\": \"checkout-{{trabajo_id}}-RECHAZAR\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pagos",
+              "host": ["{{base_url}}"],
+              "path": ["pagos"]
+            },
+            "description": "El cliente simulado del PSP declina cualquier referencia terminada en `-RECHAZAR`: es un rechazo de negocio, no una falla técnica."
+          }
+        },
+        {
+          "name": "El PSP no responde a tiempo (conciliación diferida)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('trabajo_id', 'trabajo-' + pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 201', () => pm.response.to.have.status(201));",
+                  "const p = pm.response.json();",
+                  "pm.test('queda PendienteDeConciliacion', () => pm.expect(p.estado).to.eql('PendienteDeConciliacion'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"trabajo_id\": \"{{trabajo_id}}\",\n  \"monto\": \"75000.00\",\n  \"moneda\": \"COP\",\n  \"referencia_externa\": \"checkout-{{trabajo_id}}-TIMEOUT\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pagos",
+              "host": ["{{base_url}}"],
+              "path": ["pagos"]
+            },
+            "description": "El cliente simulado tarda más de lo tolerado con cualquier referencia terminada en `-TIMEOUT`. El pago no se rechaza: queda a la espera de conciliación diferida."
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Casos de error",
+      "item": [
+        {
+          "name": "Moneda sin PSP registrado (MXN)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 400', () => pm.response.to.have.status(400));",
+                  "pm.test('explica que falta el PSP', () => pm.expect(pm.response.json().detalle).to.include('MXN'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"trabajo_id\": \"trabajo-mx-1\",\n  \"monto\": \"100.00\",\n  \"moneda\": \"MXN\",\n  \"referencia_externa\": \"checkout-mx-1\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pagos",
+              "host": ["{{base_url}}"],
+              "path": ["pagos"]
+            },
+            "description": "México aún no tiene un PSP onboarded (ver `acl_psp/registro.py`): el error es explícito en vez de fallar silenciosamente o elegir un PSP al azar."
+          }
+        },
+        {
+          "name": "Pago inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/pagos/00000000-0000-4000-8000-000000000000",
+              "host": ["{{base_url}}"],
+              "path": ["pagos", "00000000-0000-4000-8000-000000000000"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
