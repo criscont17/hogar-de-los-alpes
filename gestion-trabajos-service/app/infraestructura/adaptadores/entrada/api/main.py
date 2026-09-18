@@ -20,16 +20,24 @@ from app.infraestructura.adaptadores.entrada.mensajeria import (
     ConsumidorDeComandosPulsar,
     EjecutorDeComandos,
 )
+from app.infraestructura.adaptadores.entrada.mensajeria.consumidor_eventos_saga_pulsar import (
+    ConsumidorEventosSagaPulsar,
+)
 from app.infraestructura.adaptadores.salida.persistencia.db import crear_tablas
 from app.infraestructura.configuracion import (
     PULSAR_CONSUMIR_COMANDOS,
+    PULSAR_CONSUMIR_EVENTOS_SAGA,
     PULSAR_SUSCRIPCION_COMANDOS,
+    PULSAR_SUSCRIPCION_SAGA,
     PULSAR_TOPICO_COMANDOS,
+    PULSAR_TOPICO_EVENTOS_OPERACIONES,
+    PULSAR_TOPICO_EVENTOS_PAGO,
     PULSAR_URL,
 )
 from app.seedwork.aplicacion import ApplicationError
 from app.seedwork.dominio import DomainError
 
+from .rutas_sagas import router as router_sagas
 from .rutas_trabajos import router as router_trabajos
 
 logger = logging.getLogger("trabajos.api")
@@ -65,6 +73,7 @@ def crear_app(*, inicializar_db: bool = True, iniciar_mensajeria: bool = True) -
         if inicializar_db:
             crear_tablas()
         consumidor = None
+        consumidor_saga = None
         if iniciar_mensajeria and PULSAR_CONSUMIR_COMANDOS:
             consumidor = ConsumidorDeComandosPulsar(
                 PULSAR_URL,
@@ -78,11 +87,28 @@ def crear_app(*, inicializar_db: bool = True, iniciar_mensajeria: bool = True) -
                 # Sin Pulsar la API REST sigue atendiendo; solo no llegan comandos.
                 logger.exception("no se pudo iniciar el consumidor de comandos de Pulsar")
                 consumidor = None
+
+        if iniciar_mensajeria and PULSAR_CONSUMIR_EVENTOS_SAGA:
+            orquestador = contenedor.obtener_orquestador_saga()
+            consumidor_saga = ConsumidorEventosSagaPulsar(
+                PULSAR_URL,
+                [PULSAR_TOPICO_EVENTOS_PAGO, PULSAR_TOPICO_EVENTOS_OPERACIONES],
+                PULSAR_SUSCRIPCION_SAGA,
+                orquestador,
+            )
+            try:
+                consumidor_saga.iniciar()
+            except Exception:
+                logger.exception("no se pudo iniciar el consumidor de eventos de saga de Pulsar")
+                consumidor_saga = None
+
         try:
             yield
         finally:
             if consumidor is not None:
                 consumidor.detener()
+            if consumidor_saga is not None:
+                consumidor_saga.detener()
             if iniciar_mensajeria:
                 contenedor.reiniciar()
 
@@ -92,6 +118,8 @@ def crear_app(*, inicializar_db: bool = True, iniciar_mensajeria: bool = True) -
         lifespan=lifespan,
     )
     application.include_router(router_trabajos)
+    application.include_router(router_sagas)
+
 
     for codigo, errores in ERRORES_POR_CODIGO:
         for error in errores:

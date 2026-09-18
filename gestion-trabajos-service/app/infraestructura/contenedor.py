@@ -37,10 +37,24 @@ from app.infraestructura.adaptadores.salida.mensajeria import (
     LoggingMessageBroker,
     PulsarMessageBroker,
 )
+from app.infraestructura.adaptadores.salida.persistencia.db import session_factory
+from app.infraestructura.adaptadores.salida.persistencia.sqlalchemy_saga_log_repository import (
+    SqlAlchemySagaLogRepository,
+)
 from app.infraestructura.adaptadores.salida.persistencia.sqlalchemy_trabajo_repository import (
     SqlAlchemyTrabajoRepository,
 )
-from app.infraestructura.configuracion import MESSAGE_BROKER, PULSAR_TOPICO_EVENTOS, PULSAR_URL
+from app.infraestructura.adaptadores.salida.mensajeria.pulsar_saga_command_publisher import (
+    PulsarSagaCommandPublisher,
+)
+from app.aplicacion.sagas.orquestador_saga_trabajo import OrquestadorSagaTrabajo
+from app.infraestructura.configuracion import (
+    MESSAGE_BROKER,
+    PULSAR_TOPICO_COMANDOS_OPERACIONES,
+    PULSAR_TOPICO_COMANDOS_PAGO,
+    PULSAR_TOPICO_EVENTOS,
+    PULSAR_URL,
+)
 from app.seedwork.dominio import DomainEvent
 
 
@@ -65,6 +79,31 @@ def obtener_dispatcher() -> DomainEventDispatcher:
     return dispatcher
 
 
+@lru_cache(maxsize=1)
+def obtener_saga_log_repo() -> SqlAlchemySagaLogRepository:
+    return SqlAlchemySagaLogRepository(session_factory)
+
+
+@lru_cache(maxsize=1)
+def obtener_saga_command_publisher() -> PulsarSagaCommandPublisher:
+    return PulsarSagaCommandPublisher(PULSAR_URL)
+
+
+@lru_cache(maxsize=1)
+def obtener_orquestador_saga() -> OrquestadorSagaTrabajo:
+    session = session_factory()
+    trabajo_repo = SqlAlchemyTrabajoRepository(session)
+    saga_log_repo = obtener_saga_log_repo()
+    publisher = obtener_saga_command_publisher()
+    return OrquestadorSagaTrabajo(
+        saga_log_repo=saga_log_repo,
+        trabajo_repo=trabajo_repo,
+        command_publisher=publisher,
+        topico_comandos_pago=PULSAR_TOPICO_COMANDOS_PAGO,
+        topico_comandos_operaciones=PULSAR_TOPICO_COMANDOS_OPERACIONES,
+    )
+
+
 def handlers_de_comandos(session: Session) -> dict[type, Any]:
     """Casos de uso de escritura, con un repositorio atado a `session`."""
 
@@ -86,5 +125,11 @@ def reiniciar() -> None:
 
     if obtener_broker.cache_info().currsize:
         obtener_broker().cerrar()
+    if obtener_saga_command_publisher.cache_info().currsize:
+        obtener_saga_command_publisher().cerrar()
     obtener_dispatcher.cache_clear()
     obtener_broker.cache_clear()
+    obtener_saga_log_repo.cache_clear()
+    obtener_saga_command_publisher.cache_clear()
+    obtener_orquestador_saga.cache_clear()
+

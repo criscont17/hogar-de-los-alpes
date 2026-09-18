@@ -13,10 +13,17 @@ from app.infraestructura.adaptadores.entrada.mensajeria import (
     ConsumidorDeEventosDeTrabajoPulsar,
     EjecutorDeEventos,
 )
+from app.infraestructura.adaptadores.entrada.mensajeria.consumidor_comandos_pagos_pulsar import (
+    ConsumidorComandosPagosPulsar,
+)
 from app.infraestructura.adaptadores.salida.persistencia.db import crear_tablas
 from app.infraestructura.configuracion import (
+    PULSAR_CONSUMIR_COMANDOS_PAGO,
     PULSAR_CONSUMIR_EVENTOS_TRABAJO,
+    PULSAR_SUSCRIPCION_COMANDOS_PAGO,
     PULSAR_SUSCRIPCION_EVENTOS_TRABAJO,
+    PULSAR_TOPICO_COMANDOS_PAGO,
+    PULSAR_TOPICO_EVENTOS_PAGO,
     PULSAR_TOPICO_EVENTOS_TRABAJO,
     PULSAR_URL,
 )
@@ -55,6 +62,7 @@ def crear_app(*, inicializar_db: bool = True, iniciar_mensajeria: bool = True) -
         if inicializar_db:
             crear_tablas()
         consumidor = None
+        consumidor_comandos = None
         if iniciar_mensajeria and PULSAR_CONSUMIR_EVENTOS_TRABAJO:
             consumidor = ConsumidorDeEventosDeTrabajoPulsar(
                 PULSAR_URL,
@@ -69,11 +77,27 @@ def crear_app(*, inicializar_db: bool = True, iniciar_mensajeria: bool = True) -
                 # llegan los cierres de trabajo que liberan pagos a proveedores.
                 logger.exception("no se pudo iniciar el consumidor de eventos de Pulsar")
                 consumidor = None
+
+        if iniciar_mensajeria and PULSAR_CONSUMIR_COMANDOS_PAGO:
+            consumidor_comandos = ConsumidorComandosPagosPulsar(
+                url=PULSAR_URL,
+                topico_comandos=PULSAR_TOPICO_COMANDOS_PAGO,
+                topico_eventos=PULSAR_TOPICO_EVENTOS_PAGO,
+                suscripcion=PULSAR_SUSCRIPCION_COMANDOS_PAGO,
+            )
+            try:
+                consumidor_comandos.iniciar()
+            except Exception:
+                logger.exception("no se pudo iniciar el consumidor de comandos de saga en PagosBC")
+                consumidor_comandos = None
+
         try:
             yield
         finally:
             if consumidor is not None:
                 consumidor.detener()
+            if consumidor_comandos is not None:
+                consumidor_comandos.detener()
             if iniciar_mensajeria:
                 contenedor.reiniciar()
 
@@ -83,6 +107,7 @@ def crear_app(*, inicializar_db: bool = True, iniciar_mensajeria: bool = True) -
         lifespan=lifespan,
     )
     application.include_router(router_pagos)
+
 
     for codigo, errores in ERRORES_POR_CODIGO:
         for error in errores:

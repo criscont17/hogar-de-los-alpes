@@ -46,3 +46,20 @@ PULSAR_TOPICO_COMANDOS = _texto(
 )
 PULSAR_SUSCRIPCION_COMANDOS = _texto("PULSAR_SUSCRIPCION_COMANDOS", "gestion-trabajos")
 PULSAR_CONSUMIR_COMANDOS = _booleano("PULSAR_CONSUMIR_COMANDOS", False)
+
+# Tópicos y suscripción para la Saga Orquestada (3 microservicios)
+PULSAR_TOPICO_COMANDOS_PAGO = _texto(
+    "PULSAR_TOPICO_COMANDOS_PAGO", "persistent://public/default/comandos-pago"
+)
+PULSAR_TOPICO_COMANDOS_OPERACIONES = _texto(
+    "PULSAR_TOPICO_COMANDOS_OPERACIONES", "persistent://public/default/comandos-operaciones"
+)
+PULSAR_TOPICO_EVENTOS_PAGO = _texto(
+    "PULSAR_TOPICO_EVENTOS_PAGO", "persistent://public/default/eventos-pago"
+)
+PULSAR_TOPICO_EVENTOS_OPERACIONES = _texto(
+    "PULSAR_TOPICO_EVENTOS_OPERACIONES", "persistent://public/default/eventos-operaciones"
+)
+PULSAR_SUSCRIPCION_SAGA = _texto("PULSAR_SUSCRIPCION_SAGA", "gestion-trabajos-saga")
+PULSAR_CONSUMIR_EVENTOS_SAGA = _booleano("PULSAR_CONSUMIR_EVENTOS_SAGA", True)
+
