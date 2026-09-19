@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.dominio.billetera import EstadoBilletera
+
 
 class CrearBilleteraRequestSchema(BaseModel):
     proveedor_id: UUID
@@ -29,12 +31,30 @@ class TrabajoLiquidadoRequestSchema(BaseModel):
     moneda: str = Field(default="COP", min_length=3, max_length=3)
 
 
+class CambiarEstadoBilleteraRequestSchema(BaseModel):
+    """Única mutación admitida: el saldo solo se mueve con acreditar/debitar."""
+
+    estado: EstadoBilletera
+
+
 class BilleteraResponseSchema(BaseModel):
     id: str
     proveedor_id: str
     saldo: Decimal
     moneda: str
     estado: str
+
+
+class BilleteraDetalleResponseSchema(BilleteraResponseSchema):
+    fecha_creacion: datetime
+    total_movimientos: int
+
+
+class PaginaBilleterasResponseSchema(BaseModel):
+    items: list[BilleteraDetalleResponseSchema]
+    total: int
+    limite: int
+    desplazamiento: int
 
 
 class MovimientoResponseSchema(BaseModel):

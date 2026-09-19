@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.dominio.billetera import (
@@ -81,10 +81,57 @@ class SqlAlchemyBilleteraRepository(BilleteraRepository):
         )
         return self._a_dominio(self._session.scalar(statement))
 
+    def eliminar(self, billetera: Billetera) -> None:
+        try:
+            model = self._session.get(BilleteraModel, billetera.id.valor)
+            if model is not None:
+                # Los movimientos se van con ella por el cascade delete-orphan.
+                self._session.delete(model)
+                self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+
+    def listar(
+        self,
+        estado: EstadoBilletera | None = None,
+        proveedor_id: str | None = None,
+        limite: int = 50,
+        desplazamiento: int = 0,
+    ) -> list[Billetera]:
+        statement = (
+            self._filtrar(select(BilleteraModel), estado, proveedor_id)
+            .options(selectinload(BilleteraModel.movimientos))
+            .order_by(BilleteraModel.fecha_creacion.desc(), BilleteraModel.id)
+            .limit(limite)
+            .offset(desplazamiento)
+        )
+        return [self._reconstruir(model) for model in self._session.scalars(statement)]
+
+    def contar(
+        self,
+        estado: EstadoBilletera | None = None,
+        proveedor_id: str | None = None,
+    ) -> int:
+        statement = self._filtrar(
+            select(func.count()).select_from(BilleteraModel), estado, proveedor_id
+        )
+        return self._session.scalar(statement) or 0
+
     @staticmethod
-    def _a_dominio(model: BilleteraModel | None) -> Billetera | None:
-        if model is None:
-            return None
+    def _filtrar(statement, estado: EstadoBilletera | None, proveedor_id: str | None):
+        if estado is not None:
+            statement = statement.where(BilleteraModel.estado == estado.value)
+        if proveedor_id:
+            statement = statement.where(BilleteraModel.proveedor_id == proveedor_id)
+        return statement
+
+    @classmethod
+    def _a_dominio(cls, model: BilleteraModel | None) -> Billetera | None:
+        return None if model is None else cls._reconstruir(model)
+
+    @staticmethod
+    def _reconstruir(model: BilleteraModel) -> Billetera:
         moneda = model.saldo_moneda
         movimientos = [
             Movimiento(
