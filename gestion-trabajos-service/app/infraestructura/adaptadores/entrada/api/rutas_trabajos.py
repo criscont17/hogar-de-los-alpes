@@ -139,3 +139,46 @@ def cerrar_trabajo(
     handler: CerrarTrabajoHandler = Depends(obtener_cerrar_handler),
 ) -> TrabajoResponseSchema:
     return a_schema_trabajo(handler.ejecutar(a_comando_cerrar(trabajo_id)))
+
+
+# Alias REST de las dos operaciones anteriores, para exponer el CRUD completo sobre el
+# recurso `trabajo`. No agregan lógica: reusan el mismo comando, así que el agregado sigue
+# validando la transición.
+
+
+@router.patch(
+    "/{trabajo_id}/sub-trabajos/{sub_trabajo_id}",
+    response_model=TrabajoResponseSchema,
+)
+def actualizar_sub_trabajo(
+    trabajo_id: str,
+    sub_trabajo_id: str,
+    schema: AsignarProveedorRequestSchema,
+    handler: AsignarProveedorHandler = Depends(obtener_asignar_handler),
+) -> TrabajoResponseSchema:
+    """Asigna o reasigna el proveedor y la cotización de un sub-trabajo."""
+
+    return a_schema_trabajo(
+        handler.ejecutar(a_comando_asignar(trabajo_id, sub_trabajo_id, schema))
+    )
+
+
+@router.delete("/{trabajo_id}", response_model=TrabajoResponseSchema)
+def eliminar_trabajo(
+    trabajo_id: str,
+    motivo: str = Query(
+        default="Eliminado por solicitud del cliente",
+        min_length=1,
+        description="Motivo que queda registrado en el evento TrabajoCancelado",
+    ),
+    handler: CancelarTrabajoHandler = Depends(obtener_cancelar_handler),
+) -> TrabajoResponseSchema:
+    """Borrado lógico: cancela el trabajo y liquida lo que alcanzó a completarse.
+
+    Un trabajo nunca se borra físicamente, porque PagosBC y OperacionesBC ya consumieron
+    sus eventos y deben poder compensar.
+    """
+
+    return a_schema_trabajo(
+        handler.ejecutar(a_comando_cancelar(trabajo_id, CancelarTrabajoRequestSchema(motivo=motivo)))
+    )
