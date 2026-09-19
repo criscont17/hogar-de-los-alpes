@@ -169,6 +169,20 @@ migraciones versionadas.
 
 ## API REST
 
+| Método | Ruta | Para qué |
+|---|---|---|
+| `POST` | `/billeteras` | Crear la billetera de un proveedor |
+| `GET` | `/billeteras` | Listar billeteras con paginación y filtros |
+| `GET` | `/billeteras/{id}` | Detalle administrativo de una billetera |
+| `PATCH` | `/billeteras/{id}` | Cambiar el estado: `Activa` o `Suspendida` |
+| `DELETE` | `/billeteras/{id}` | Eliminar una billetera sin saldo |
+| `GET` | `/billeteras/{id}/saldo` | Saldo y estado actuales |
+| `POST` | `/billeteras/{id}/acreditar` | Registrar un crédito |
+| `POST` | `/billeteras/{id}/debitar` | Registrar un débito |
+| `GET` | `/billeteras/{id}/movimientos` | Historial, con filtros de fecha y tipo |
+| `GET` | `/billeteras/{id}/movimientos/{movimiento_id}` | Un movimiento puntual |
+| `POST` | `/eventos-externos/trabajo-liquidado` | Evento externo simulado |
+
 Use UUID diferentes para el proveedor y los trabajos. Primero cree una billetera:
 
 ```bash
@@ -205,6 +219,43 @@ Los valores permitidos son:
 - filtro `tipo`: `Credito` o `Debito`.
 - filtros de fecha: `fecha_desde` y `fecha_hasta` en formato ISO 8601.
 
-La API responde `201` al crear, `200` en operaciones exitosas, `400` ante datos o reglas
-inválidas, `404` si no existe la billetera y `409` ante fondos insuficientes o una billetera
-duplicada.
+### Administración de las billeteras
+
+El listado devuelve una página, no un arreglo suelto, para que el cliente sepa cuántos
+registros quedan. Acepta `estado`, `proveedor_id`, `limite` (1 a 200, por omisión 50) y
+`desplazamiento`:
+
+```bash
+curl "http://localhost:8000/billeteras?estado=Activa&limite=20&desplazamiento=0"
+# {"items":[...],"total":37,"limite":20,"desplazamiento":0}
+
+curl http://localhost:8000/billeteras/$BILLETERA_ID
+# agrega fecha_creacion y total_movimientos al saldo
+```
+
+La única actualización admitida es el estado. El saldo no se edita: se mueve con
+`acreditar` y `debitar` para que cada peso quede respaldado por un movimiento, y el
+proveedor y la moneda son parte de la identidad contable de la billetera.
+
+```bash
+curl -X PATCH http://localhost:8000/billeteras/$BILLETERA_ID \
+  -H 'Content-Type: application/json' \
+  -d '{"estado":"Suspendida"}'
+```
+
+Una billetera suspendida rechaza los débitos y publica `DebitoRechazadoV1`. El cambio de
+estado emite `EstadoBilleteraCambiadoV1` con el estado anterior; repetir el estado actual
+responde `200` sin emitir evento, porque no hubo un hecho nuevo.
+
+```bash
+curl -X DELETE http://localhost:8000/billeteras/$BILLETERA_ID   # 204, o 409 si tiene saldo
+```
+
+El borrado es físico y arrastra los movimientos en cascada, pero solo procede con saldo
+cero: un saldo positivo es dinero adeudado al proveedor, y eliminarlo lo haría desaparecer
+sin contrapartida contable. Emite `BilleteraEliminadaV1` para que los demás bounded
+contexts dejen de considerar esa billetera.
+
+La API responde `201` al crear, `200` en operaciones exitosas, `204` al eliminar, `400`
+ante datos o reglas inválidas, `404` si no existe la billetera o el movimiento, y `409`
+ante fondos insuficientes, billetera duplicada o un borrado con saldo pendiente.

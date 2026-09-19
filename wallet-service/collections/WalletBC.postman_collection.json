@@ -2,13 +2,13 @@
   "info": {
     "_postman_id": "b3f1c7a2-5d64-4e18-9a2f-1c7d0e4a9b31",
     "name": "WalletBC — Hogar de los Alpes",
-    "description": "Colección de pruebas del microservicio de billeteras de proveedores.\n\nEstá pensada para ejecutarse completa con el Collection Runner: cada corrida genera un `proveedor_id` y un `trabajo_id` nuevos, así que el estado siempre arranca limpio y los saldos esperados son deterministas.\n\nOrden del flujo principal:\n\n1. Crear billetera — saldo 0\n2. Acreditar 150.000 — saldo 150.000\n3. Debitar 25.000 — saldo 125.000\n4. Trabajo liquidado 80.000 — saldo 205.000\n5. Listar los 3 movimientos\n\nAntes de ejecutar, levante el servicio:\n\n    cd wallet-service\n    env\\Scripts\\activate.bat\n    uvicorn app.infraestructura.adaptadores.entrada.api.main:app --reload",
+    "description": "Colección de pruebas del microservicio de billeteras de proveedores.\n\nEstá pensada para ejecutarse completa con el Collection Runner: cada corrida genera un `proveedor_id` y un `trabajo_id` nuevos, así que el estado siempre arranca limpio y los saldos esperados son deterministas.\n\nOrden del flujo principal:\n\n1. Crear billetera — saldo 0\n2. Acreditar 150.000 — saldo 150.000\n3. Debitar 25.000 — saldo 125.000\n4. Trabajo liquidado 80.000 — saldo 205.000\n5. Listar los 3 movimientos\n\nTodas las rutas van bajo el prefijo `/wallet` de la entrada pública, así que la colección se ejecuta contra el gateway. Levante la plataforma desde la raíz del repositorio:\n\n    docker compose up -d --build --wait\n\n`base_url` es `http://localhost` (el gateway en el puerto 80). Para probar contra el despliegue en AWS, cambie `base_url` por el host público; si levantó el gateway en otro puerto con `PUERTO_GATEWAY`, agréguelo ahí.\n\nEl gateway quita el prefijo antes de reenviar: `/wallet/billeteras` llega al servicio como `/billeteras`. Por eso, para golpear el contenedor directo en `127.0.0.1:8000` hay que quitar el segmento `/wallet` de las rutas.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     {
       "key": "base_url",
-      "value": "http://localhost:8000",
+      "value": "http://localhost",
       "type": "string"
     },
     {
@@ -23,6 +23,16 @@
     },
     {
       "key": "trabajo_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "proveedor_temporal",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "billetera_temporal",
       "value": "",
       "type": "string"
     }
@@ -71,9 +81,9 @@
               "raw": "{\n  \"proveedor_id\": \"{{proveedor_id}}\",\n  \"moneda\": \"COP\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/billeteras",
+              "raw": "{{base_url}}/wallet/billeteras",
               "host": ["{{base_url}}"],
-              "path": ["billeteras"]
+              "path": ["wallet", "billeteras"]
             },
             "description": "Crea la billetera del proveedor. Emite el evento de dominio `BilleteraCreada`, que el bus publica como `BilleteraCreadaV1`."
           }
@@ -96,9 +106,9 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/billeteras/{{billetera_id}}/saldo",
+              "raw": "{{base_url}}/wallet/billeteras/{{billetera_id}}/saldo",
               "host": ["{{base_url}}"],
-              "path": ["billeteras", "{{billetera_id}}", "saldo"]
+              "path": ["wallet", "billeteras", "{{billetera_id}}", "saldo"]
             }
           }
         },
@@ -124,9 +134,9 @@
               "raw": "{\n  \"monto\": \"150000.00\",\n  \"motivo\": \"AjusteManual\",\n  \"referencia_externa\": \"ajuste-1\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/billeteras/{{billetera_id}}/acreditar",
+              "raw": "{{base_url}}/wallet/billeteras/{{billetera_id}}/acreditar",
               "host": ["{{base_url}}"],
-              "path": ["billeteras", "{{billetera_id}}", "acreditar"]
+              "path": ["wallet", "billeteras", "{{billetera_id}}", "acreditar"]
             },
             "description": "Motivos válidos: `PagoDeTrabajo`, `RetiroAProveedor`, `AjusteManual`, `Reverso`.\n\nPublica `SaldoAcreditadoV1` con `motivo: \"AjusteManual\"`."
           }
@@ -153,9 +163,9 @@
               "raw": "{\n  \"monto\": \"25000.00\",\n  \"motivo\": \"RetiroAProveedor\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/billeteras/{{billetera_id}}/debitar",
+              "raw": "{{base_url}}/wallet/billeteras/{{billetera_id}}/debitar",
               "host": ["{{base_url}}"],
-              "path": ["billeteras", "{{billetera_id}}", "debitar"]
+              "path": ["wallet", "billeteras", "{{billetera_id}}", "debitar"]
             }
           }
         },
@@ -181,9 +191,9 @@
               "raw": "{\n  \"trabajo_id\": \"{{trabajo_id}}\",\n  \"proveedor_id\": \"{{proveedor_id}}\",\n  \"monto\": \"80000.00\",\n  \"moneda\": \"COP\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/eventos-externos/trabajo-liquidado",
+              "raw": "{{base_url}}/wallet/eventos-externos/trabajo-liquidado",
               "host": ["{{base_url}}"],
-              "path": ["eventos-externos", "trabajo-liquidado"]
+              "path": ["wallet", "eventos-externos", "trabajo-liquidado"]
             },
             "description": "Simula el evento externo `TrabajoLiquidado`. Acredita con motivo `PagoDeTrabajo` y deja el `trabajo_id` como `referencia_externa`.\n\nEn los logs del servicio se ve `SaldoAcreditadoV1` con `\"motivo\": \"PagoDeTrabajo\"`.\n\nOJO: hoy no hay control de idempotencia. Reenviar el mismo `trabajo_id` acredita de nuevo."
           }
@@ -212,9 +222,9 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/billeteras/{{billetera_id}}/movimientos",
+              "raw": "{{base_url}}/wallet/billeteras/{{billetera_id}}/movimientos",
               "host": ["{{base_url}}"],
-              "path": ["billeteras", "{{billetera_id}}", "movimientos"]
+              "path": ["wallet", "billeteras", "{{billetera_id}}", "movimientos"]
             }
           }
         },
@@ -239,9 +249,9 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/billeteras/{{billetera_id}}/movimientos?tipo=Credito",
+              "raw": "{{base_url}}/wallet/billeteras/{{billetera_id}}/movimientos?tipo=Credito",
               "host": ["{{base_url}}"],
-              "path": ["billeteras", "{{billetera_id}}", "movimientos"],
+              "path": ["wallet", "billeteras", "{{billetera_id}}", "movimientos"],
               "query": [
                 { "key": "tipo", "value": "Credito" },
                 { "key": "fecha_desde", "value": "2026-01-01T00:00:00Z", "disabled": true },
@@ -278,9 +288,9 @@
               "raw": "{\n  \"proveedor_id\": \"{{proveedor_id}}\",\n  \"moneda\": \"COP\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/billeteras",
+              "raw": "{{base_url}}/wallet/billeteras",
               "host": ["{{base_url}}"],
-              "path": ["billeteras"]
+              "path": ["wallet", "billeteras"]
             },
             "description": "Reutiliza el `proveedor_id` del flujo principal: un proveedor solo puede tener una billetera."
           }
@@ -307,9 +317,9 @@
               "raw": "{\n  \"monto\": \"999999999.00\",\n  \"motivo\": \"RetiroAProveedor\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/billeteras/{{billetera_id}}/debitar",
+              "raw": "{{base_url}}/wallet/billeteras/{{billetera_id}}/debitar",
               "host": ["{{base_url}}"],
-              "path": ["billeteras", "{{billetera_id}}", "debitar"]
+              "path": ["wallet", "billeteras", "{{billetera_id}}", "debitar"]
             },
             "description": "Aunque la petición falla, el agregado emite `DebitoRechazado` y el bus lo publica como `DebitoRechazadoV1`. Revise los logs del servicio: debe aparecer aun con respuesta 409.\n\nEl saldo no cambia, porque el rechazo no persiste nada."
           }
@@ -332,9 +342,9 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/billeteras/{{$guid}}/saldo",
+              "raw": "{{base_url}}/wallet/billeteras/{{$guid}}/saldo",
               "host": ["{{base_url}}"],
-              "path": ["billeteras", "{{$guid}}", "saldo"]
+              "path": ["wallet", "billeteras", "{{$guid}}", "saldo"]
             }
           }
         },
@@ -360,9 +370,9 @@
               "raw": "{\n  \"monto\": \"-5.00\",\n  \"motivo\": \"AjusteManual\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/billeteras/{{billetera_id}}/acreditar",
+              "raw": "{{base_url}}/wallet/billeteras/{{billetera_id}}/acreditar",
               "host": ["{{base_url}}"],
-              "path": ["billeteras", "{{billetera_id}}", "acreditar"]
+              "path": ["wallet", "billeteras", "{{billetera_id}}", "acreditar"]
             }
           }
         },
@@ -388,9 +398,9 @@
               "raw": "{\n  \"trabajo_id\": \"{{$guid}}\",\n  \"proveedor_id\": \"{{proveedor_id}}\",\n  \"monto\": \"10000.00\",\n  \"moneda\": \"USD\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/eventos-externos/trabajo-liquidado",
+              "raw": "{{base_url}}/wallet/eventos-externos/trabajo-liquidado",
               "host": ["{{base_url}}"],
-              "path": ["eventos-externos", "trabajo-liquidado"]
+              "path": ["wallet", "eventos-externos", "trabajo-liquidado"]
             },
             "description": "La billetera es COP: una liquidación en USD se rechaza. Este caso no emite ningún evento, a diferencia del débito rechazado."
           }
@@ -416,9 +426,304 @@
               "raw": "{\n  \"monto\": \"1000.00\",\n  \"motivo\": \"MotivoQueNoExiste\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/billeteras/{{billetera_id}}/acreditar",
+              "raw": "{{base_url}}/wallet/billeteras/{{billetera_id}}/acreditar",
               "host": ["{{base_url}}"],
-              "path": ["billeteras", "{{billetera_id}}", "acreditar"]
+              "path": ["wallet", "billeteras", "{{billetera_id}}", "acreditar"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Administración CRUD",
+      "description": "Gestión de datos de la billetera: listado paginado, detalle, cambio de estado y eliminación. Reutiliza la billetera del flujo principal, que a esta altura tiene saldo 205.000 y 3 movimientos.",
+      "item": [
+        {
+          "name": "Listar billeteras (paginado)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const p = pm.response.json();",
+                  "pm.test('devuelve una página', () => pm.expect(p.items).to.be.an('array'));",
+                  "pm.test('respeta el límite', () => pm.expect(p.items.length).to.be.at.most(10));",
+                  "pm.test('hace eco de la paginación', () => { pm.expect(p.limite).to.eql(10); pm.expect(p.desplazamiento).to.eql(0); });",
+                  "pm.test('el total cuenta todas, no solo la página', () => pm.expect(p.total).to.be.at.least(p.items.length));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wallet/billeteras?limite=10&desplazamiento=0",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "billeteras"],
+              "query": [
+                { "key": "limite", "value": "10" },
+                { "key": "desplazamiento", "value": "0" }
+              ]
+            },
+            "description": "El listado responde una página, no un arreglo suelto: `total` permite al cliente saber cuántas quedan. `limite` admite de 1 a 200."
+          }
+        },
+        {
+          "name": "Listar billeteras — filtro por proveedor",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const p = pm.response.json();",
+                  "pm.test('un proveedor tiene una sola billetera', () => pm.expect(p.total).to.eql(1));",
+                  "pm.test('es la del flujo principal', () => pm.expect(p.items[0].id).to.eql(pm.collectionVariables.get('billetera_id')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wallet/billeteras?proveedor_id={{proveedor_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "billeteras"],
+              "query": [{ "key": "proveedor_id", "value": "{{proveedor_id}}" }]
+            },
+            "description": "El filtro por proveedor sustituye a un endpoint dedicado: la unicidad la garantiza el índice único de `proveedor_id`."
+          }
+        },
+        {
+          "name": "Obtener billetera (detalle)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const b = pm.response.json();",
+                  "pm.test('saldo acumulado del flujo', () => pm.expect(Number(b.saldo)).to.eql(205000));",
+                  "pm.test('trae datos de gestión', () => { pm.expect(b).to.have.property('fecha_creacion'); pm.expect(b.total_movimientos).to.eql(3); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wallet/billeteras/{{billetera_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "billeteras", "{{billetera_id}}"]
+            },
+            "description": "A diferencia de `/saldo`, el detalle agrega `fecha_creacion` y `total_movimientos`, que son los datos que necesita una pantalla de administración."
+          }
+        },
+        {
+          "name": "Suspender billetera",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('queda suspendida', () => pm.expect(pm.response.json().estado).to.eql('Suspendida'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"estado\": \"Suspendida\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/wallet/billeteras/{{billetera_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "billeteras", "{{billetera_id}}"]
+            },
+            "description": "El estado es el único campo editable. Emite `EstadoBilleteraCambiado`, publicado como `EstadoBilleteraCambiadoV1` con el estado anterior."
+          }
+        },
+        {
+          "name": "Debitar billetera suspendida → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 400', () => pm.response.to.have.status(400));",
+                  "pm.test('explica el motivo', () => pm.expect(pm.response.json().detalle).to.include('suspendida'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monto\": \"1000.00\",\n  \"motivo\": \"RetiroAProveedor\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/wallet/billeteras/{{billetera_id}}/debitar",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "billeteras", "{{billetera_id}}", "debitar"]
+            },
+            "description": "Comprueba que suspender surte efecto: el agregado rechaza el débito y publica `DebitoRechazadoV1`."
+          }
+        },
+        {
+          "name": "Reactivar billetera",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('vuelve a estar activa', () => pm.expect(pm.response.json().estado).to.eql('Activa'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"estado\": \"Activa\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/wallet/billeteras/{{billetera_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "billeteras", "{{billetera_id}}"]
+            },
+            "description": "Repetir el estado actual responde 200 sin emitir evento: solo un cambio real es un hecho de negocio."
+          }
+        },
+        {
+          "name": "Eliminar billetera con saldo → 409",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('el saldo protege a la billetera', () => pm.expect(pm.response.json().detalle).to.include('saldo'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wallet/billeteras/{{billetera_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "billeteras", "{{billetera_id}}"]
+            },
+            "description": "Un saldo positivo es dinero adeudado al proveedor: borrar la billetera lo haría desaparecer sin contrapartida contable."
+          }
+        },
+        {
+          "name": "Crear billetera temporal",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Billetera desechable: nace en cero, así el DELETE sí puede completarse.",
+                  "pm.collectionVariables.set('proveedor_temporal', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('billetera_temporal', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"proveedor_id\": \"{{proveedor_temporal}}\",\n  \"moneda\": \"COP\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/wallet/billeteras",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "billeteras"]
+            }
+          }
+        },
+        {
+          "name": "Eliminar billetera temporal",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 204', () => pm.response.to.have.status(204));",
+                  "pm.test('no devuelve cuerpo', () => pm.expect(pm.response.text()).to.be.empty);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wallet/billeteras/{{billetera_temporal}}",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "billeteras", "{{billetera_temporal}}"]
+            },
+            "description": "Con saldo cero el borrado procede: se va la billetera y, en cascada, sus movimientos. Emite `BilleteraEliminadaV1`."
+          }
+        },
+        {
+          "name": "Consultar billetera eliminada → 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wallet/billeteras/{{billetera_temporal}}",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "billeteras", "{{billetera_temporal}}"]
             }
           }
         }

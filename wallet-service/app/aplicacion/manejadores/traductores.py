@@ -9,13 +9,17 @@ from collections.abc import Callable
 
 from app.aplicacion.eventos_integracion import (
     BilleteraCreadaV1,
+    BilleteraEliminadaV1,
     DebitoRechazadoV1,
+    EstadoBilleteraCambiadoV1,
     SaldoAcreditadoV1,
     SaldoDebitadoV1,
 )
 from app.dominio.billetera.eventos import (
     BilleteraCreada,
+    BilleteraEliminada,
     DebitoRechazado,
+    EstadoBilleteraCambiado,
     SaldoAcreditado,
     SaldoDebitado,
 )
@@ -66,6 +70,23 @@ def _de_debito_rechazado(evento: DebitoRechazado) -> DebitoRechazadoV1:
     )
 
 
+def _de_estado_cambiado(evento: EstadoBilleteraCambiado) -> EstadoBilleteraCambiadoV1:
+    return EstadoBilleteraCambiadoV1(
+        billetera_id=evento.billetera_id,
+        estado_anterior=evento.estado_anterior,
+        estado_nuevo=evento.estado_nuevo,
+        fecha=evento.fecha.isoformat(),
+    )
+
+
+def _de_billetera_eliminada(evento: BilleteraEliminada) -> BilleteraEliminadaV1:
+    return BilleteraEliminadaV1(
+        billetera_id=evento.billetera_id,
+        proveedor_id=evento.proveedor_id,
+        fecha=evento.fecha.isoformat(),
+    )
+
+
 Traductor = Callable[[DomainEvent], IntegrationEvent]
 
 TRADUCTORES: dict[type[DomainEvent], Traductor] = {
@@ -73,4 +94,6 @@ TRADUCTORES: dict[type[DomainEvent], Traductor] = {
     SaldoAcreditado: _de_saldo_acreditado,
     SaldoDebitado: _de_saldo_debitado,
     DebitoRechazado: _de_debito_rechazado,
+    EstadoBilleteraCambiado: _de_estado_cambiado,
+    BilleteraEliminada: _de_billetera_eliminada,
 }
