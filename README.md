@@ -205,10 +205,14 @@ Una ruta que no existe responde `404` en JSON. Si un servicio está caído, sus 
   escenario 3, no obliga a reiniciar el gateway, y el gateway arranca aunque falte un servicio.
 - **Sin TLS por ahora.** Si se pone un balanceador de AWS con certificado delante de la VM,
   el gateway conserva `X-Forwarded-Proto`.
+- **Use `127.0.0.1`, no `localhost`, para los puertos directos.** Al estar ligados solo a la
+  interfaz IPv4, un cliente que resuelva `localhost` intenta primero `::1` y pierde unos 2
+  segundos por petición antes de caer a IPv4. El gateway no tiene ese problema: escucha en
+  ambas familias.
 
 ### Postman a través del gateway
 
-Las colecciones apuntan por defecto a los puertos directos (`localhost:800x`), que funcionan
+Las colecciones apuntan por defecto a los puertos directos (`127.0.0.1:800x`), que funcionan
 desde la misma máquina. Para usarlas contra la VM, cambie las variables base del environment
 a la entrada pública:
 

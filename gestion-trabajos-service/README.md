@@ -41,7 +41,7 @@ gestion-trabajos-service/
     │   └── errores/
     ├── aplicacion/
     │   ├── comandos/  queries/  dtos/
-    │   ├── puertos/              # DomainEventDispatcher, MessageBroker
+    │   ├── puertos/              # UnidadDeTrabajo, DomainEventDispatcher, MessageBroker
     │   ├── manejadores/          # auditar, publicar en Pulsar, traductores
     │   └── eventos_integracion/  # contrato público versionado (V1, V2)
     └── infraestructura/
@@ -344,7 +344,23 @@ Las decisiones de la capa anti-corrupción con partners están en OperacionesBC 
 - **Consecuencias:** Pulsar standalone consume bastante CPU en local; existe el adaptador
   `logging` para trabajar sin él.
 
-### DA-07. Publicar después del commit, sin Outbox (por ahora)
+### DA-07. Unidad de trabajo: la transacción la decide el caso de uso
+
+- **Contexto:** antes cada repositorio hacía `commit` dentro de `guardar`, así que la
+  transacción la decidía el adaptador de persistencia. Un caso de uso que escribiera dos
+  veces podía dejar la mitad guardada, y la aplicación no tenía forma de revertir.
+- **Decisión:** el puerto `UnidadDeTrabajo` delimita la transacción. El handler abre el
+  bloque, obtiene el repositorio de la unidad (`uow.trabajos`) y confirma al final; el
+  repositorio solo hace `flush`. Al salir del bloque se revierte lo no confirmado.
+- **Alternativa descartada:** seguir confirmando en el repositorio. Es menos código, pero
+  mezcla la política (cuándo es definitivo un cambio) con el detalle técnico de guardar.
+- **Consecuencias:** los errores de integridad y de versión se traducen en la unidad de
+  trabajo, y los eventos se despachan **después** de confirmar, no antes.
+- **Detalle aprendido:** no se usan *savepoints* para reintentar dentro de la transacción,
+  porque el driver de SQLite los ejecuta fuera de transacción y persistía cambios sin
+  confirmar. Cuando una escritura falla, el caso de uso revierte la unidad y vuelve a leer.
+
+### DA-08. Publicar después del commit, sin Outbox (por ahora)
 
 - **Decisión:** el caso de uso guarda y luego despacha los eventos. Un suscriptor que falla se
   registra y no afecta la respuesta.
@@ -352,7 +368,7 @@ Las decisiones de la capa anti-corrupción con partners están en OperacionesBC 
 - **Consecuencias:** si Pulsar cae justo después del commit, un evento puede perderse. Es el
   primer pendiente para producción.
 
-### DA-08. Base de datos propia y bloqueo optimista
+### DA-09. Base de datos propia y bloqueo optimista
 
 - **Decisión:** base `trabajos_db` exclusiva y versión en la fila del trabajo. Si otra
   operación lo guardó entre la lectura y la escritura, se responde 409 (o se reentrega el comando).
@@ -360,10 +376,10 @@ Las decisiones de la capa anti-corrupción con partners están en OperacionesBC 
 - **Consecuencias:** ante operaciones concurrentes sobre el mismo trabajo, el cliente puede
   recibir un conflicto y debe reintentar.
 
-### DA-09. Raíz de composición compartida por REST y Pulsar
+### DA-10. Raíz de composición compartida por REST y Pulsar
 
 - **Decisión:** el cableado vive en `app/infraestructura/contenedor.py` y lo usan la API y el
-  consumidor de comandos.
+  consumidor de comandos. Ahí se crea la unidad de trabajo de cada petición o mensaje.
 - **Consecuencias:** un comando produce los mismos eventos llegue por REST o por Pulsar.
 
 ## Flujo de prueba con Postman

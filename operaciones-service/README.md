@@ -42,7 +42,8 @@ operaciones-service/
     ├── aplicacion/
     │   ├── comandos/             # RegistrarPartner, CrearTrabajoDesdePartner, ProcesarEventoDeTrabajo
     │   ├── queries/              # ListarPartners, ObtenerPartner, ConsultarTrabajoDePartner
-    │   ├── puertos/              # AdaptadorDePartner, CatalogoDeAdaptadores, GestionDeTrabajos, TrabajosDePartnerRepository
+    │   ├── puertos/              # UnidadDeTrabajo, AdaptadorDePartner, CatalogoDeAdaptadores,
+    │   │                         # GestionDeTrabajos, TrabajosDePartnerRepository
     │   ├── proyeccion.py         # eventos de GestionDeTrabajosBC → vista del trabajo del partner
     │   └── dtos/
     └── infraestructura/
@@ -277,6 +278,20 @@ esperado, está en [`collections/README.md`](collections/README.md).
    5. Compruebe que GestionDeTrabajosBC no se modificó ni se reinició: `git status` no muestra
       cambios en `gestion-trabajos-service/`, y `docker compose ps gestion-trabajos` muestra el
       mismo tiempo de actividad que antes.
+
+### DO-06. Unidad de trabajo sobre los dos repositorios
+
+- **Contexto:** crear un trabajo desde un partner lee el acuerdo del agregado `Partner` y
+  escribe la vista del trabajo. Con el `commit` dentro de cada repositorio, una falla entre
+  las dos escrituras dejaba el estado a medias.
+- **Decisión:** el puerto `UnidadDeTrabajo` entrega los dos repositorios (`uow.partners` y
+  `uow.trabajos`) sobre la misma transacción, y el caso de uso confirma una sola vez.
+- **Consecuencias:** el comando a GestionDeTrabajosBC se envía antes de confirmar la vista.
+  Si el envío falla, no queda registrada una solicitud que nadie pidió; si falla el commit
+  posterior, el core es idempotente por referencia y el reintento no duplica el trabajo.
+- **Detalle:** cuando el consumidor de eventos crea la vista al mismo tiempo, el repositorio
+  levanta `SolicitudYaRegistradaError`, el caso de uso revierte y vuelve a leer la vista
+  ganadora. La notificación al partner ocurre fuera de la transacción, ya confirmada.
 
 ## Pendientes conocidos
 

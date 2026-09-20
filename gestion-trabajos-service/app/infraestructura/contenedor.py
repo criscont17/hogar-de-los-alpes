@@ -8,8 +8,6 @@ broker existen una sola vez por proceso, y `reiniciar()` los libera al apagar.
 from functools import lru_cache
 from typing import Any
 
-from sqlalchemy.orm import Session
-
 from app.aplicacion.comandos import (
     AsignarProveedorCommand,
     AsignarProveedorHandler,
@@ -30,15 +28,15 @@ from app.aplicacion.manejadores import (
     AuditarEventoDeDominioHandler,
     PublicarEventoDeIntegracionHandler,
 )
-from app.aplicacion.puertos import DomainEventDispatcher, MessageBroker
+from app.aplicacion.puertos import DomainEventDispatcher, MessageBroker, UnidadDeTrabajo
 from app.infraestructura.adaptadores.salida.eventos import InMemoryDomainEventDispatcher
 from app.infraestructura.adaptadores.salida.mensajeria import (
     InMemoryMessageBroker,
     LoggingMessageBroker,
     PulsarMessageBroker,
 )
-from app.infraestructura.adaptadores.salida.persistencia.sqlalchemy_trabajo_repository import (
-    SqlAlchemyTrabajoRepository,
+from app.infraestructura.adaptadores.salida.persistencia.sqlalchemy_unidad_de_trabajo import (
+    SqlAlchemyUnidadDeTrabajo,
 )
 from app.infraestructura.configuracion import MESSAGE_BROKER, PULSAR_TOPICO_EVENTOS, PULSAR_URL
 from app.seedwork.dominio import DomainEvent
@@ -65,19 +63,28 @@ def obtener_dispatcher() -> DomainEventDispatcher:
     return dispatcher
 
 
-def handlers_de_comandos(session: Session) -> dict[type, Any]:
-    """Casos de uso de escritura, con un repositorio atado a `session`."""
+def unidad_de_trabajo() -> UnidadDeTrabajo:
+    """Nueva unidad de trabajo: aqui se decide la tecnologia de la transaccion.
 
-    repo = SqlAlchemyTrabajoRepository(session)
+    Se crea una por peticion HTTP o por mensaje de Pulsar, porque cada una abre y cierra
+    su propia sesion de base de datos.
+    """
+
+    return SqlAlchemyUnidadDeTrabajo()
+
+
+def handlers_de_comandos(uow: UnidadDeTrabajo) -> dict[type, Any]:
+    """Casos de uso de escritura; `uow` delimita la transaccion de cada uno."""
+
     dispatcher = obtener_dispatcher()
     return {
-        CrearTrabajoCommand: CrearTrabajoHandler(repo, dispatcher),
-        AsignarProveedorCommand: AsignarProveedorHandler(repo, dispatcher),
-        IniciarSubTrabajoCommand: IniciarSubTrabajoHandler(repo, dispatcher),
-        CompletarSubTrabajoCommand: CompletarSubTrabajoHandler(repo, dispatcher),
-        RegistrarRediagnosticoCommand: RegistrarRediagnosticoHandler(repo, dispatcher),
-        CancelarTrabajoCommand: CancelarTrabajoHandler(repo, dispatcher),
-        CerrarTrabajoCommand: CerrarTrabajoHandler(repo, dispatcher),
+        CrearTrabajoCommand: CrearTrabajoHandler(uow, dispatcher),
+        AsignarProveedorCommand: AsignarProveedorHandler(uow, dispatcher),
+        IniciarSubTrabajoCommand: IniciarSubTrabajoHandler(uow, dispatcher),
+        CompletarSubTrabajoCommand: CompletarSubTrabajoHandler(uow, dispatcher),
+        RegistrarRediagnosticoCommand: RegistrarRediagnosticoHandler(uow, dispatcher),
+        CancelarTrabajoCommand: CancelarTrabajoHandler(uow, dispatcher),
+        CerrarTrabajoCommand: CerrarTrabajoHandler(uow, dispatcher),
     }
 
 

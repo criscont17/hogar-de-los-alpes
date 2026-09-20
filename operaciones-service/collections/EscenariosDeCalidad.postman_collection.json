@@ -8,12 +8,12 @@
   "variable": [
     {
       "key": "base_operaciones",
-      "value": "http://localhost:8002",
+      "value": "http://127.0.0.1:8002",
       "type": "string"
     },
     {
       "key": "base_trabajos",
-      "value": "http://localhost:8001",
+      "value": "http://127.0.0.1:8001",
       "type": "string"
     },
     {

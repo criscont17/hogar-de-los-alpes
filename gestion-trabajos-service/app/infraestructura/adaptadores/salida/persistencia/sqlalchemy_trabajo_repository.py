@@ -36,14 +36,21 @@ class SqlAlchemyTrabajoRepository(TrabajoRepository):
         self._session = session
 
     def guardar(self, trabajo: Trabajo) -> None:
+        """Escribe el agregado dentro de la transaccion abierta por la unidad de trabajo.
+
+        Hace `flush` para que los errores de integridad y de version aparezcan aqui y se
+        traduzcan a errores de negocio, pero no confirma: el `commit` es de la unidad de
+        trabajo. Si esto falla, el caso de uso debe revertirla antes de volver a leer.
+        """
+
         try:
             model = self._session.get(TrabajoModel, trabajo.id.valor)
             if model is None:
                 model = self._nuevo_modelo(trabajo)
                 self._session.add(model)
             model.estado = trabajo.estado.value
-            # Siempre cambia, así que toda escritura pasa por la verificación de
-            # versión aunque solo se hayan modificado sub-trabajos.
+            # Siempre cambia, asi que toda escritura pasa por la verificacion de
+            # version aunque solo se hayan modificado sub-trabajos.
             model.fecha_actualizacion = datetime.now(timezone.utc)
 
             existentes = {sub.id: sub for sub in model.sub_trabajos}
@@ -65,20 +72,16 @@ class SqlAlchemyTrabajoRepository(TrabajoRepository):
                     sub_trabajo.monto_cotizado.monto if sub_trabajo.monto_cotizado else None
                 )
                 sub_model.evidencias = list(sub_trabajo.evidencias)
-            self._session.commit()
+            self._session.flush()
         except IntegrityError as exc:
-            self._session.rollback()
             raise TrabajoDuplicadoError(
                 "Ya existe un trabajo con esa referencia para el partner"
             ) from exc
         except StaleDataError as exc:
-            self._session.rollback()
             raise ConflictoDeConcurrenciaError(
-                "El trabajo fue modificado por otra operación; vuelva a intentarlo"
+                "El trabajo fue modificado por otra operacion; vuelva a intentarlo"
             ) from exc
-        except Exception:
-            self._session.rollback()
-            raise
+
 
     def obtener_por_id(self, id: TrabajoId) -> Trabajo | None:
         statement = (

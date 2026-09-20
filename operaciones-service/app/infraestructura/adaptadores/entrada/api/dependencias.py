@@ -9,6 +9,7 @@ from app.aplicacion.comandos import (
     RegistrarPartnerCommand,
     RegistrarPartnerHandler,
 )
+from app.aplicacion.puertos import UnidadDeTrabajo
 from app.aplicacion.queries import (
     ConsultarTrabajoDePartnerHandler,
     ListarPartnersHandler,
@@ -39,10 +40,17 @@ def obtener_trabajos_repo(
     return SqlAlchemyTrabajosDePartnerRepository(session)
 
 
-def obtener_handlers_de_comandos(session: Session = Depends(obtener_sesion)) -> dict[type, Any]:
+def obtener_unidad_de_trabajo() -> UnidadDeTrabajo:
+    # Una unidad de trabajo por peticion: abre y cierra su propia sesion.
+    return contenedor.unidad_de_trabajo()
+
+
+def obtener_handlers_de_comandos(
+    uow: UnidadDeTrabajo = Depends(obtener_unidad_de_trabajo),
+) -> dict[type, Any]:
     # El cableado vive en el contenedor para que la API y el consumidor de Pulsar
     # ejecuten exactamente los mismos casos de uso.
-    return contenedor.handlers_de_comandos(session)
+    return contenedor.handlers_de_comandos(uow)
 
 
 def obtener_registrar_handler(
