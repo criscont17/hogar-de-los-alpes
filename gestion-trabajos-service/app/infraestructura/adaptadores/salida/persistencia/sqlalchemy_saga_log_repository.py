@@ -153,6 +153,41 @@ class SqlAlchemySagaLogRepository:
             session.add(paso)
             session.commit()
 
+    def completar_paso_compensacion(
+        self,
+        saga_id: UUID,
+        paso_numero: int,
+        nombre_paso: str,
+        estado: str,
+        evento_recibido: dict[str, Any] | None = None,
+        error: str | None = None,
+    ) -> None:
+        """Cierra el registro de compensación creado antes de enviar su comando."""
+
+        ahora = datetime.now(timezone.utc)
+        with self._session_factory() as session:
+            stmt = (
+                select(SagaPasoModel)
+                .where(
+                    SagaPasoModel.saga_id == saga_id,
+                    SagaPasoModel.paso_numero == paso_numero,
+                    SagaPasoModel.nombre_paso == nombre_paso,
+                )
+                .order_by(SagaPasoModel.fecha_inicio.desc())
+            )
+            paso = session.execute(stmt).scalars().first()
+            if paso:
+                paso.estado_paso = estado
+                paso.evento_recibido = evento_recibido
+                paso.error = error
+                paso.fecha_fin = ahora
+            instancia = session.execute(
+                select(SagaInstanciaModel).where(SagaInstanciaModel.saga_id == saga_id)
+            ).scalar_one_or_none()
+            if instancia:
+                instancia.fecha_actualizacion = ahora
+            session.commit()
+
     def finalizar_saga(
         self,
         saga_id: UUID,
