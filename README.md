@@ -224,6 +224,7 @@ a la entrada pública:
 | GestionDeTrabajosBC | `base_url` | `http://<IP-pública>/trabajos` |
 | Escenarios de calidad (OperacionesBC) | `base_operaciones` / `base_trabajos` | `http://<IP-pública>/operaciones` / `http://<IP-pública>/trabajos` |
 | PagosBC | `base_url` | `http://<IP-pública>/pagos` |
+| BFF-HdA | `base_url` | `http://<IP-pública>/api` |
 
 La carpeta 05 (onboarding) reconstruye OperacionesBC. Ese paso se ejecuta por SSH en la VM.
 
@@ -244,7 +245,7 @@ Consumo medido del stack completo en reposo:
 2. **Security group (entrada):**
    - `80/tcp` desde las IPs que necesiten acceso, o `0.0.0.0/0` para una demo abierta;
    - `22/tcp` solo desde su IP.
-   - No abra 5432–5435, 6650, 8000–8003 ni 8080.
+   - No abra 5432–5435, 6650, 8000–8005 ni 8080.
 3. **Docker:**
 
    ```bash

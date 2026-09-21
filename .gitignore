@@ -30,3 +30,6 @@ build/
 
 # Logs
 *.log
+
+# Overrides locales de docker-compose (puertos ocupados en la máquina del desarrollador, etc.)
+docker-compose.override.yml

@@ -8,10 +8,11 @@
 # Para exponerlas a propósito: IP_PUERTOS_INTERNOS=0.0.0.0 docker compose up -d
 #
 # Cada API arranca con UVICORN_ROOT_PATH igual a su prefijo en el gateway, para que
-# Swagger funcione en /wallet/docs, /trabajos/docs, /operaciones/docs y /pagos/docs.
+# Swagger funcione en /wallet/docs, /trabajos/docs, /operaciones/docs, /pagos/docs y
+# /api/docs (el BFF).
 
 services:
-  # Entrada pública única: enruta /wallet, /trabajos, /operaciones y /pagos.
+  # Entrada pública única: enruta /wallet, /trabajos, /operaciones, /pagos y /api (BFF).
   gateway:
     build: ./gateway
     ports:
@@ -21,6 +22,7 @@ services:
       - gestion-trabajos
       - operaciones
       - pagos
+      - bff
     restart: unless-stopped
 
   # Base propia de WalletBC.
@@ -206,6 +208,22 @@ services:
         condition: service_healthy
       pulsar:
         condition: service_healthy
+    restart: unless-stopped
+
+  # BFF: única puerta de entrada síncrona (HTTP REST) hacia las capacidades de negocio.
+  # Traduce peticiones externas en llamadas al orquestador de la saga (gestion-trabajos)
+  # y a WalletBC; no tiene base de datos propia ni lógica de dominio.
+  bff:
+    build: ./bff-service
+    environment:
+      URL_GESTION_TRABAJOS: http://gestion-trabajos:8001
+      URL_WALLET: http://wallet:8000
+      UVICORN_ROOT_PATH: /api
+    ports:
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:8005:8005"
+    depends_on:
+      - gestion-trabajos
+      - wallet
     restart: unless-stopped
 
 
