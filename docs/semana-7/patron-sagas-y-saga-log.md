@@ -172,6 +172,11 @@ sequenceDiagram
     end
 ```
 
+El orquestador conserva la saga en `COMPENSANDO` después de enviar el comando de
+reverso. Solo procesa la compensación local y establece `COMPENSADA` cuando
+recibe `PagoTrabajoRevertidoV1` con `revertido=true`; si Pagos reporta un
+reverso fallido, el paso queda en `ERROR` y la saga termina en `FALLIDA`.
+
 ---
 
 ## 4. Persistencia y Auditoría con Saga Log

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.aplicacion.comandos import (
     CrearPagoCommand,
     CrearPagoHandler,
+    ProcesadorComandosSagaPago,
     ProcesarCierreDeTrabajoCommand,
     ProcesarCierreDeTrabajoHandler,
 )
@@ -91,6 +92,14 @@ def handlers_de_comandos(uow: UnidadDeTrabajo) -> dict[type, Any]:
         CrearPagoCommand: crear_pago,
         ProcesarCierreDeTrabajoCommand: ProcesarCierreDeTrabajoHandler(crear_pago),
     }
+
+
+def procesador_comandos_saga() -> ProcesadorComandosSagaPago:
+    return ProcesadorComandosSagaPago(
+        fabrica_uow=unidad_de_trabajo,
+        dispatcher=obtener_dispatcher(),
+        adaptadores=obtener_catalogo_psp(),
+    )
 
 
 

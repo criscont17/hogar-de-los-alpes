@@ -13,3 +13,4 @@ class EstadoPago(str, Enum):
     CONFIRMADO = "Confirmado"
     RECHAZADO = "Rechazado"
     PENDIENTE_CONCILIACION = "PendienteDeConciliacion"
+    REVERSADO = "Reversado"

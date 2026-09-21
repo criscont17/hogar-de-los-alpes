@@ -91,6 +91,8 @@ class ConsumidorEventosSagaPulsar:
             self._orquestador.procesar_pago_autorizado(saga_id, payload)
         elif tipo_evento == "PagoTrabajoRechazadoV1":
             self._orquestador.procesar_pago_rechazado(saga_id, payload)
+        elif tipo_evento == "PagoTrabajoRevertidoV1":
+            self._orquestador.procesar_pago_revertido(saga_id, payload)
         elif tipo_evento == "ProveedorTrabajoAsignadoV1":
             self._orquestador.procesar_proveedor_asignado(saga_id, payload)
         elif tipo_evento == "AsignacionProveedorRechazadaV1":

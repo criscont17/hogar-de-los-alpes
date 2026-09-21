@@ -67,6 +67,10 @@ class CrearPagoHandler:
                 uow.confirmar()
             except PagoDuplicadoError:
                 # Dos entregas simultáneas de la misma referencia: otra ganó la carrera.
+                # `flush()` pudo haber fallado antes de llegar a `confirmar()`, por
+                # lo que la sesión debe volver a un estado consultable antes de leer
+                # el pago que confirmó la otra entrega.
+                uow.revertir()
                 existente = uow.pagos.obtener_por_referencia_externa(comando.referencia_externa)
                 if existente is None:
                     raise

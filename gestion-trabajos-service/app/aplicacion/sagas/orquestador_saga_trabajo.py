@@ -301,10 +301,31 @@ class OrquestadorSagaTrabajo:
             partition_key=str(instancia.trabajo_id),
         )
 
-        # 2. Compensar Paso 1: Cancelar trabajo en GestionDeTrabajosBC
+        logger.info("Saga %s espera la confirmación de reverso de PagosBC", saga_id)
+
+    def procesar_pago_revertido(self, saga_id: UUID, payload: dict[str, Any]) -> None:
+        """Completa la compensación solo después de la confirmación de PagosBC."""
+
+        instancia = self._saga_log.obtener_saga(saga_id)
+        if not instancia:
+            logger.error("Saga %s no encontrada al confirmar reverso de pago", saga_id)
+            return
+        if not payload.get("revertido"):
+            motivo = payload.get("motivo", "PagosBC no pudo revertir la autorización")
+            self._saga_log.completar_paso_compensacion(
+                saga_id, 2, "COMPENSAR_REVERTIR_PAGO", "ERROR", payload, motivo
+            )
+            self._saga_log.finalizar_saga(saga_id, "FALLIDA", motivo)
+            return
+
+        self._saga_log.completar_paso_compensacion(
+            saga_id, 2, "COMPENSAR_REVERTIR_PAGO", "COMPENSADO", payload
+        )
+
+        # Compensar paso 1 después de confirmar el paso 2, en orden inverso.
         trabajo = self._obtener_trabajo(TrabajoId(instancia.trabajo_id))
         if trabajo:
-            trabajo.cancelar(motivo=f"Saga fallida por asignación: {motivo}")
+            trabajo.cancelar(motivo=f"Saga fallida por asignación: {instancia.error or 'sin cobertura'}")
             self._guardar_trabajo(trabajo)
 
         self._saga_log.registrar_paso_compensacion(
@@ -316,5 +337,7 @@ class OrquestadorSagaTrabajo:
             evento_compensacion={"trabajo_cancelado": True},
         )
 
-        self._saga_log.finalizar_saga(saga_id=saga_id, estado_final="COMPENSADA", error=motivo)
-        logger.info("Saga %s COMPENSADA exitosamente tras fallo de asignación", saga_id)
+        self._saga_log.finalizar_saga(
+            saga_id=saga_id, estado_final="COMPENSADA", error=instancia.error
+        )
+        logger.info("Saga %s COMPENSADA tras confirmación de reverso de PagosBC", saga_id)

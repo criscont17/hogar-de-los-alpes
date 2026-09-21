@@ -84,6 +84,7 @@ def crear_app(*, inicializar_db: bool = True, iniciar_mensajeria: bool = True) -
                 topico_comandos=PULSAR_TOPICO_COMANDOS_PAGO,
                 topico_eventos=PULSAR_TOPICO_EVENTOS_PAGO,
                 suscripcion=PULSAR_SUSCRIPCION_COMANDOS_PAGO,
+                procesador=contenedor.procesador_comandos_saga(),
             )
             try:
                 consumidor_comandos.iniciar()

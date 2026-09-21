@@ -130,8 +130,17 @@ def ejecutar_pruebas():
     print("   ✓ Comando de compensación RevertirPagoTrabajoV1 emitido a PagosBC")
 
     instancia_fallo = saga_log_repo.obtener_saga(saga_fallo_id)
+    assert instancia_fallo.estado_global == "COMPENSANDO"
+    print("   ✓ Saga queda COMPENSANDO hasta recibir la confirmación de PagosBC")
+
+    # Pagos confirma el reverso de su autorización antes de que el orquestador
+    # cancele el trabajo y declare consistencia eventual.
+    orquestador.procesar_pago_revertido(saga_fallo_id, {"revertido": True})
+    instancia_fallo = saga_log_repo.obtener_saga(saga_fallo_id)
     assert instancia_fallo.estado_global == "COMPENSADA"
-    print("   ✓ Saga Log registra estado final = COMPENSADA")
+    paso_reverso = next(p for p in instancia_fallo.pasos if p.nombre_paso == "COMPENSAR_REVERTIR_PAGO")
+    assert paso_reverso.estado_paso == "COMPENSADO"
+    print("   ✓ Saga Log registra el reverso y el estado final = COMPENSADA")
 
     # Verificar que el trabajo preliminar quedó CANCELADO
     from app.dominio.trabajo import TrabajoId

@@ -1,6 +1,7 @@
 import json
 import logging
 import threading
+from decimal import Decimal
 from typing import Any
 
 logger = logging.getLogger("pagos.comandos_saga")
@@ -15,11 +16,13 @@ class ConsumidorComandosPagosPulsar:
         topico_comandos: str,
         topico_eventos: str,
         suscripcion: str,
+        procesador,
     ) -> None:
         self._url = url
         self._topico_comandos = topico_comandos
         self._topico_eventos = topico_eventos
         self._suscripcion = suscripcion
+        self._procesador = procesador
         self._detener = threading.Event()
         self._hilo: threading.Thread | None = None
         self._cliente: Any = None
@@ -84,40 +87,49 @@ class ConsumidorComandosPagosPulsar:
         simular_fallo = payload.get("simular_fallo", False)
 
         if tipo_comando == "AutorizarPagoTrabajoV1":
-            if simular_fallo:
-                logger.warning("Simulando rechazo de pago para saga=%s trabajo=%s", saga_id, trabajo_id)
+            resultado = self._procesador.autorizar(
+                saga_id=saga_id,
+                trabajo_id=trabajo_id,
+                monto=Decimal(str(payload["monto"])),
+                moneda=str(payload["moneda"]),
+                simular_fallo=simular_fallo,
+            )
+            if not resultado.exitoso:
                 self._emitir_evento(
                     tipo_evento="PagoTrabajoRechazadoV1",
                     saga_id=saga_id,
                     payload={
                         "trabajo_id": trabajo_id,
-                        "motivo": "Fondos insuficientes (simulación de fallo)",
+                        "motivo": resultado.motivo or "El pago fue rechazado",
                     },
                     partition_key=trabajo_id,
                 )
             else:
-                logger.info("Pago autorizado exitosamente para saga=%s trabajo=%s", saga_id, trabajo_id)
                 self._emitir_evento(
                     tipo_evento="PagoTrabajoAutorizadoV1",
                     saga_id=saga_id,
                     payload={
                         "trabajo_id": trabajo_id,
-                        "monto": payload.get("monto"),
-                        "moneda": payload.get("moneda"),
+                        "monto": str(payload["monto"]),
+                        "moneda": str(payload["moneda"]),
                         "estado": "AUTORIZADO",
                     },
                     partition_key=trabajo_id,
                 )
 
         elif tipo_comando == "RevertirPagoTrabajoV1":
-            logger.info("Compensación: Revertir pago para saga=%s trabajo=%s", saga_id, trabajo_id)
+            resultado = self._procesador.revertir(
+                saga_id=saga_id,
+                trabajo_id=trabajo_id,
+                motivo=str(payload.get("motivo", "Compensación de Saga")),
+            )
             self._emitir_evento(
                 tipo_evento="PagoTrabajoRevertidoV1",
                 saga_id=saga_id,
                 payload={
                     "trabajo_id": trabajo_id,
-                    "revertido": True,
-                    "motivo": payload.get("motivo", "Compensación de Saga"),
+                    "revertido": resultado.exitoso,
+                    "motivo": resultado.motivo,
                 },
                 partition_key=trabajo_id,
             )

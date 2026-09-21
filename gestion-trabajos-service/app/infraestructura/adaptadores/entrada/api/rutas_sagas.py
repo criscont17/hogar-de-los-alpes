@@ -57,10 +57,11 @@ def iniciar_saga_activar_servicio(solicitud: SolicitudActivarServicioSchema):
 
     orquestador = contenedor.obtener_orquestador_saga()
     saga_id = orquestador.iniciar_saga(solicitud_dominio)
+    instancia = contenedor.obtener_saga_log_repo().obtener_saga(saga_id)
 
     return RespuestaInicioSagaSchema(
         saga_id=saga_id,
-        trabajo_id=trabajo_id,
+        trabajo_id=instancia.trabajo_id if instancia is not None else trabajo_id,
         estado_global="INICIADA",
         mensaje="Saga distribuida iniciada exitosamente en GestionDeTrabajosBC",
     )
