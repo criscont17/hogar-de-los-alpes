@@ -4,10 +4,9 @@ from decimal import Decimal
 from app.aplicacion.dtos import PagoDTO
 from app.aplicacion.eventos import despachar_eventos_pendientes
 from app.aplicacion.mapeo import pago_a_dto
-from app.aplicacion.puertos import CatalogoDePSP, DomainEventDispatcher
+from app.aplicacion.puertos import CatalogoDePSP, DomainEventDispatcher, UnidadDeTrabajo
 from app.dominio.errores import PagoDuplicadoError
 from app.dominio.pago import Dinero, Pago, PagoFactory, TipoPago
-from app.dominio.pago.pago_repository import PagoRepository
 from app.seedwork.dominio import DomainError
 from app.seedwork.infraestructura import CircuitoAbiertoError
 
@@ -37,41 +36,45 @@ class CrearPagoHandler:
 
     def __init__(
         self,
-        repo: PagoRepository,
+        uow: UnidadDeTrabajo,
         dispatcher: DomainEventDispatcher,
         adaptadores: CatalogoDePSP,
     ) -> None:
-        self._repo = repo
+        self._uow = uow
         self._dispatcher = dispatcher
         self._adaptadores = adaptadores
 
     def ejecutar(self, comando: CrearPagoCommand) -> PagoDTO:
-        existente = self._repo.obtener_por_referencia_externa(comando.referencia_externa)
-        if existente is not None:
-            return pago_a_dto(existente)
+        with self._uow as uow:
+            existente = uow.pagos.obtener_por_referencia_externa(comando.referencia_externa)
+            if existente is not None:
+                return pago_a_dto(existente)
 
-        psp_id = comando.psp or self._adaptadores.psp_por_defecto(comando.moneda)
-        pago = PagoFactory.crear(
-            trabajo_id=comando.trabajo_id,
-            tipo=TipoPago(comando.tipo),
-            monto=Dinero(comando.monto, comando.moneda),
-            psp=psp_id,
-            referencia_externa=comando.referencia_externa,
-            sub_trabajo_id=comando.sub_trabajo_id,
-            proveedor_id=comando.proveedor_id,
-        )
-        self._intentar_cobro(pago)
+            psp_id = comando.psp or self._adaptadores.psp_por_defecto(comando.moneda)
+            pago = PagoFactory.crear(
+                trabajo_id=comando.trabajo_id,
+                tipo=TipoPago(comando.tipo),
+                monto=Dinero(comando.monto, comando.moneda),
+                psp=psp_id,
+                referencia_externa=comando.referencia_externa,
+                sub_trabajo_id=comando.sub_trabajo_id,
+                proveedor_id=comando.proveedor_id,
+            )
+            self._intentar_cobro(pago)
 
-        try:
-            self._repo.guardar(pago)
-        except PagoDuplicadoError:
-            # Dos entregas simultáneas de la misma referencia: otra ganó la carrera.
-            existente = self._repo.obtener_por_referencia_externa(comando.referencia_externa)
-            if existente is None:
-                raise
-            return pago_a_dto(existente)
+            try:
+                uow.pagos.guardar(pago)
+                uow.confirmar()
+            except PagoDuplicadoError:
+                # Dos entregas simultáneas de la misma referencia: otra ganó la carrera.
+                existente = uow.pagos.obtener_por_referencia_externa(comando.referencia_externa)
+                if existente is None:
+                    raise
+                return pago_a_dto(existente)
+
         despachar_eventos_pendientes(pago, self._dispatcher)
         return pago_a_dto(pago)
+
 
     def _intentar_cobro(self, pago: Pago) -> None:
         adaptador = self._adaptadores.obtener(pago.psp)

@@ -20,7 +20,12 @@ from app.aplicacion.manejadores import (
     AuditarEventoDeDominioHandler,
     PublicarEventoDeIntegracionHandler,
 )
-from app.aplicacion.puertos import CatalogoDePSP, DomainEventDispatcher, MessageBroker
+from app.aplicacion.puertos import (
+    CatalogoDePSP,
+    DomainEventDispatcher,
+    MessageBroker,
+    UnidadDeTrabajo,
+)
 from app.infraestructura.adaptadores.acl_psp import CatalogoDePSPEnMemoria, construir_catalogo_psp
 from app.infraestructura.adaptadores.salida.eventos import InMemoryDomainEventDispatcher
 from app.infraestructura.adaptadores.salida.mensajeria import (
@@ -28,8 +33,8 @@ from app.infraestructura.adaptadores.salida.mensajeria import (
     LoggingMessageBroker,
     PulsarMessageBroker,
 )
-from app.infraestructura.adaptadores.salida.persistencia.sqlalchemy_pago_repository import (
-    SqlAlchemyPagoRepository,
+from app.infraestructura.adaptadores.salida.persistencia.sqlalchemy_unidad_de_trabajo import (
+    SqlAlchemyUnidadDeTrabajo,
 )
 from app.infraestructura.configuracion import (
     MESSAGE_BROKER,
@@ -69,15 +74,24 @@ def obtener_dispatcher() -> DomainEventDispatcher:
     return dispatcher
 
 
-def handlers_de_comandos(session: Session) -> dict[type, Any]:
-    """Casos de uso de escritura, con un repositorio atado a `session`."""
+def unidad_de_trabajo() -> UnidadDeTrabajo:
+    """Nueva unidad de trabajo: aquí se decide la tecnología de la transacción.
 
-    repo = SqlAlchemyPagoRepository(session)
-    crear_pago = CrearPagoHandler(repo, obtener_dispatcher(), obtener_catalogo_psp())
+    Se crea una por petición HTTP o por mensaje de Pulsar, porque cada una abre y cierra
+    su propia sesión de base de datos.
+    """
+    return SqlAlchemyUnidadDeTrabajo()
+
+
+def handlers_de_comandos(uow: UnidadDeTrabajo) -> dict[type, Any]:
+    """Casos de uso de escritura; `uow` delimita la transacción de cada uno."""
+
+    crear_pago = CrearPagoHandler(uow, obtener_dispatcher(), obtener_catalogo_psp())
     return {
         CrearPagoCommand: crear_pago,
         ProcesarCierreDeTrabajoCommand: ProcesarCierreDeTrabajoHandler(crear_pago),
     }
+
 
 
 def reiniciar() -> None:
