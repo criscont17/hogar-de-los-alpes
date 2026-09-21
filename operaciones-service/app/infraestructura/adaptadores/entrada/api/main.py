@@ -17,10 +17,17 @@ from app.infraestructura.adaptadores.entrada.mensajeria import (
     ConsumidorDeEventosDeTrabajoPulsar,
     EjecutorDeEventos,
 )
+from app.infraestructura.adaptadores.entrada.mensajeria.consumidor_comandos_operaciones_pulsar import (
+    ConsumidorComandosOperacionesPulsar,
+)
 from app.infraestructura.adaptadores.salida.persistencia.db import crear_tablas
 from app.infraestructura.configuracion import (
+    PULSAR_CONSUMIR_COMANDOS_OPERACIONES,
     PULSAR_CONSUMIR_EVENTOS,
+    PULSAR_SUSCRIPCION_COMANDOS_OPERACIONES,
     PULSAR_SUSCRIPCION_EVENTOS,
+    PULSAR_TOPICO_COMANDOS_OPERACIONES,
+    PULSAR_TOPICO_EVENTOS_OPERACIONES,
     PULSAR_TOPICO_EVENTOS_TRABAJO,
     PULSAR_URL,
     SEMBRAR_PARTNERS,
@@ -61,6 +68,7 @@ def crear_app(*, inicializar_db: bool = True, iniciar_mensajeria: bool = True) -
             if SEMBRAR_PARTNERS:
                 sembrar_partners()
         consumidor = None
+        consumidor_comandos = None
         if iniciar_mensajeria:
             contenedor.obtener_catalogo_adaptadores().iniciar()
             if PULSAR_CONSUMIR_EVENTOS:
@@ -76,11 +84,27 @@ def crear_app(*, inicializar_db: bool = True, iniciar_mensajeria: bool = True) -
                     # Sin Pulsar la API sigue atendiendo, pero la vista de trabajos no avanza.
                     logger.exception("no se pudo iniciar el consumidor de eventos de Pulsar")
                     consumidor = None
+
+            if PULSAR_CONSUMIR_COMANDOS_OPERACIONES:
+                consumidor_comandos = ConsumidorComandosOperacionesPulsar(
+                    url=PULSAR_URL,
+                    topico_comandos=PULSAR_TOPICO_COMANDOS_OPERACIONES,
+                    topico_eventos=PULSAR_TOPICO_EVENTOS_OPERACIONES,
+                    suscripcion=PULSAR_SUSCRIPCION_COMANDOS_OPERACIONES,
+                )
+                try:
+                    consumidor_comandos.iniciar()
+                except Exception:
+                    logger.exception("no se pudo iniciar el consumidor de comandos de saga en OperacionesBC")
+                    consumidor_comandos = None
+
         try:
             yield
         finally:
             if consumidor is not None:
                 consumidor.detener()
+            if consumidor_comandos is not None:
+                consumidor_comandos.detener()
             if iniciar_mensajeria:
                 contenedor.reiniciar()
 
@@ -90,6 +114,7 @@ def crear_app(*, inicializar_db: bool = True, iniciar_mensajeria: bool = True) -
         lifespan=lifespan,
     )
     application.include_router(router_partners)
+
 
     for codigo, errores in ERRORES_POR_CODIGO:
         for error in errores:

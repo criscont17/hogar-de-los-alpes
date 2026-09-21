@@ -382,6 +382,36 @@ Las decisiones de la capa anti-corrupción con partners están en OperacionesBC 
   consumidor de comandos. Ahí se crea la unidad de trabajo de cada petición o mensaje.
 - **Consecuencias:** un comando produce los mismos eventos llegue por REST o por Pulsar.
 
+### DA-11. Sagas por Orquestación y Saga Log para transacciones distribuidas
+
+- **Contexto:** la activación de un servicio involucra a GestionDeTrabajosBC (crear trabajo preliminar),
+  PagosBC (retener fondos) y OperacionesBC (asignar proveedor). Una transacción 2PC tradicional
+  afecta la disponibilidad y rompe la autonomía de los microservicios.
+- **Decisión:** coordinar la transacción mediante el patrón de **Saga por Orquestación** alojado
+  en este servicio (el Core Domain), registrando cada transición de estado y payload en un
+  **Saga Log** persistente (`saga_instancias` y `saga_pasos`). Ante rechazos de negocio, el
+  orquestador ejecuta compensaciones en orden inverso.
+- **Consecuencias:** trazabilidad completa del workflow distribuido, observabilidad granular y
+  consistencia eventual sin acoplamiento temporal síncrono.
+
+## Transacciones Distribuidas (Sagas) y Saga Log
+
+Endpoints disponibles para la orquestación:
+- `POST /sagas/activar-servicio`: inicia la transacción distribuida y devuelve `202 Accepted` junto con `saga_id` y `trabajo_id`.
+- `GET /sagas/{saga_id}`: consulta la línea de tiempo completa del Saga Log (pasos, estados, timestamps y errores).
+- `GET /sagas`: lista las transacciones recientes.
+
+Para ejecutar las pruebas de la Saga:
+```bash
+# Prueba unitaria en memoria (Happy Path y Compensación):
+python3 scripts/test_unitario_saga.py
+
+# Prueba de integración con Docker y Apache Pulsar:
+python3 -m scripts.probar_saga_orquestada --modo exito
+python3 -m scripts.probar_saga_orquestada --modo compensar-operaciones
+```
+
+
 ## Flujo de prueba con Postman
 
 - **Motor de trabajos:** la colección de [`collections/`](collections/README.md) tiene el flujo

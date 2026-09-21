@@ -29,16 +29,30 @@ from app.aplicacion.manejadores import (
     PublicarEventoDeIntegracionHandler,
 )
 from app.aplicacion.puertos import DomainEventDispatcher, MessageBroker, UnidadDeTrabajo
+from app.aplicacion.sagas.orquestador_saga_trabajo import OrquestadorSagaTrabajo
 from app.infraestructura.adaptadores.salida.eventos import InMemoryDomainEventDispatcher
 from app.infraestructura.adaptadores.salida.mensajeria import (
     InMemoryMessageBroker,
     LoggingMessageBroker,
     PulsarMessageBroker,
 )
+from app.infraestructura.adaptadores.salida.mensajeria.pulsar_saga_command_publisher import (
+    PulsarSagaCommandPublisher,
+)
+from app.infraestructura.adaptadores.salida.persistencia.db import SessionLocal
+from app.infraestructura.adaptadores.salida.persistencia.sqlalchemy_saga_log_repository import (
+    SqlAlchemySagaLogRepository,
+)
 from app.infraestructura.adaptadores.salida.persistencia.sqlalchemy_unidad_de_trabajo import (
     SqlAlchemyUnidadDeTrabajo,
 )
-from app.infraestructura.configuracion import MESSAGE_BROKER, PULSAR_TOPICO_EVENTOS, PULSAR_URL
+from app.infraestructura.configuracion import (
+    MESSAGE_BROKER,
+    PULSAR_TOPICO_COMANDOS_OPERACIONES,
+    PULSAR_TOPICO_COMANDOS_PAGO,
+    PULSAR_TOPICO_EVENTOS,
+    PULSAR_URL,
+)
 from app.seedwork.dominio import DomainEvent
 
 
@@ -64,17 +78,39 @@ def obtener_dispatcher() -> DomainEventDispatcher:
 
 
 def unidad_de_trabajo() -> UnidadDeTrabajo:
-    """Nueva unidad de trabajo: aqui se decide la tecnologia de la transaccion.
+    """Nueva unidad de trabajo: aquí se decide la tecnología de la transacción.
 
-    Se crea una por peticion HTTP o por mensaje de Pulsar, porque cada una abre y cierra
-    su propia sesion de base de datos.
+    Se crea una por petición HTTP o por mensaje de Pulsar, porque cada una abre y cierra
+    su propia sesión de base de datos.
     """
-
     return SqlAlchemyUnidadDeTrabajo()
 
 
+@lru_cache(maxsize=1)
+def obtener_saga_log_repo() -> SqlAlchemySagaLogRepository:
+    return SqlAlchemySagaLogRepository(SessionLocal)
+
+
+@lru_cache(maxsize=1)
+def obtener_saga_command_publisher() -> PulsarSagaCommandPublisher:
+    return PulsarSagaCommandPublisher(PULSAR_URL)
+
+
+@lru_cache(maxsize=1)
+def obtener_orquestador_saga() -> OrquestadorSagaTrabajo:
+    saga_log_repo = obtener_saga_log_repo()
+    publisher = obtener_saga_command_publisher()
+    return OrquestadorSagaTrabajo(
+        saga_log_repo=saga_log_repo,
+        fabrica_uow=unidad_de_trabajo,
+        command_publisher=publisher,
+        topico_comandos_pago=PULSAR_TOPICO_COMANDOS_PAGO,
+        topico_comandos_operaciones=PULSAR_TOPICO_COMANDOS_OPERACIONES,
+    )
+
+
 def handlers_de_comandos(uow: UnidadDeTrabajo) -> dict[type, Any]:
-    """Casos de uso de escritura; `uow` delimita la transaccion de cada uno."""
+    """Casos de uso de escritura; `uow` delimita la transacción de cada uno."""
 
     dispatcher = obtener_dispatcher()
     return {
@@ -95,3 +131,6 @@ def reiniciar() -> None:
         obtener_broker().cerrar()
     obtener_dispatcher.cache_clear()
     obtener_broker.cache_clear()
+    obtener_saga_log_repo.cache_clear()
+    obtener_saga_command_publisher.cache_clear()
+    obtener_orquestador_saga.cache_clear()
