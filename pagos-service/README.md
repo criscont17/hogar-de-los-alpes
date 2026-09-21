@@ -37,7 +37,7 @@ pagos-service/
     ├── aplicacion/
     │   ├── comandos/               # CrearPago, ProcesarCierreDeTrabajo
     │   ├── queries/                 # ObtenerPago, ListarPagos
-    │   ├── puertos/                  # DomainEventDispatcher, MessageBroker, AdaptadorDePSP, CatalogoDePSP
+    │   ├── puertos/                  # UnidadDeTrabajo, DomainEventDispatcher, MessageBroker, AdaptadorDePSP, CatalogoDePSP
     │   ├── manejadores/               # auditar, publicar en Pulsar, traductores
     │   └── eventos_integracion/        # contrato público versionado (V1)
     └── infraestructura/
@@ -48,10 +48,11 @@ pagos-service/
             │   ├── api/            # FastAPI: checkout y consultas de pagos
             │   └── mensajeria/      # consumidor de TrabajoCerradoV1 en Pulsar
             ├── acl_psp/             # un adaptador por PSP + catálogo + cliente simulado
-            └── salida/              # persistencia/ eventos/ mensajeria/ (Pulsar, logs, memoria)
+            └── salida/              # persistencia (UoW, repo)/ eventos/ mensajeria/ (Pulsar, logs, memoria)
 ```
 
 DDD, arquitectura hexagonal y CQS, igual que WalletBC, GestionDeTrabajosBC y OperacionesBC.
+
 
 - `app/dominio/`: Python puro. No conoce PSPs, formatos, FastAPI, SQLAlchemy ni Pulsar.
 - `app/aplicacion/`: un handler por comando o query, DTOs `dataclass` y puertos. No importa
@@ -134,7 +135,24 @@ romper a quien sigue leyendo `V1`.
 |---|---|
 | Interoperabilidad #7 | Adapter + ACL por PSP (`acl_psp/`), objeto valor `Dinero` con validación de moneda, circuit breaker por PSP. Incorporar un PSP nuevo no toca el agregado `Pago`. Ante timeout o caída de un PSP, el pago pasa a `PendienteDeConciliacion` en vez de bloquear el resto de transacciones. |
 
+### Unidad de Trabajo (Unit of Work)
+
+Siguiendo el feedback de la Entrega 6 y el diseño de `GestionDeTrabajosBC` y `OperacionesBC`, la transacción la gobierna el caso de uso mediante el puerto `UnidadDeTrabajo`:
+- El caso de uso (`CrearPagoHandler`) abre el bloque `with self._uow as uow:`, ejecuta la lógica de negocio y confirma al final (`uow.confirmar()`).
+- El repositorio (`SqlAlchemyPagoRepository`) no realiza `commit()` ni `rollback()`; únicamente hace `flush()` dentro de la sesión de la UoW.
+- Si ocurre una excepción no controlada, `SqlAlchemyUnidadDeTrabajo` descarta las escrituras (`rollback()`) al salir del bloque `with`.
+- Los eventos de dominio se despachan exclusivamente **después** de confirmar la transacción en la base de datos.
+
+## Pruebas automatizadas
+
+Para ejecutar la suite de pruebas unitarias y de integración de la Unidad de Trabajo:
+
+```bash
+DATABASE_URL="sqlite:///:memory:" python3 -m unittest discover -s tests
+```
+
 ## Requisitos y ejecución
+
 
 Se necesita Python 3.11 o posterior. Docker es opcional: la aplicación puede ejecutarse con
 PostgreSQL en Docker o con SQLite (archivo, no `:memory:` — SQLite abre una base nueva por
