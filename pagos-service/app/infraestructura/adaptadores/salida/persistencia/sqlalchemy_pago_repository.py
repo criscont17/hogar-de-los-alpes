@@ -22,6 +22,12 @@ class SqlAlchemyPagoRepository(PagoRepository):
         self._session = session
 
     def guardar(self, pago: Pago) -> None:
+        """Escribe el agregado dentro de la transacción abierta por la unidad de trabajo.
+
+        Hace `flush` para que los errores de integridad y de versión aparezcan aquí y se
+        traduzcan a errores de negocio, pero no confirma: el `commit` es de la unidad de
+        trabajo.
+        """
         try:
             model = self._session.get(PagoModel, pago.id.valor)
             if model is None:
@@ -42,20 +48,16 @@ class SqlAlchemyPagoRepository(PagoRepository):
             model.estado = pago.estado.value
             model.referencia_psp = pago.referencia_psp
             model.motivo = pago.motivo
-            self._session.commit()
+            self._session.flush()
         except IntegrityError as exc:
-            self._session.rollback()
             raise PagoDuplicadoError(
                 "Ya existe un pago con esa referencia externa"
             ) from exc
         except StaleDataError as exc:
-            self._session.rollback()
             raise ConflictoDeConcurrenciaError(
                 "El pago fue modificado por otra operación; vuelva a intentarlo"
             ) from exc
-        except Exception:
-            self._session.rollback()
-            raise
+
 
     def obtener_por_id(self, id: PagoId) -> Pago | None:
         return self._a_dominio(self._session.get(PagoModel, id.valor))
