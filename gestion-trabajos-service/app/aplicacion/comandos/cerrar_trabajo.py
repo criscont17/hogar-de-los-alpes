@@ -4,8 +4,7 @@ from app.aplicacion.carga import cargar_trabajo
 from app.aplicacion.dtos import TrabajoDTO
 from app.aplicacion.eventos import despachar_eventos_pendientes
 from app.aplicacion.mapeo import trabajo_a_dto
-from app.aplicacion.puertos import DomainEventDispatcher
-from app.dominio.trabajo.trabajo_repository import TrabajoRepository
+from app.aplicacion.puertos import DomainEventDispatcher, UnidadDeTrabajo
 
 
 @dataclass(frozen=True)
@@ -16,15 +15,18 @@ class CerrarTrabajoCommand:
 class CerrarTrabajoHandler:
     def __init__(
         self,
-        repo: TrabajoRepository,
+        uow: UnidadDeTrabajo,
         dispatcher: DomainEventDispatcher,
     ) -> None:
-        self._repo = repo
+        self._uow = uow
         self._dispatcher = dispatcher
 
     def ejecutar(self, comando: CerrarTrabajoCommand) -> TrabajoDTO:
-        trabajo = cargar_trabajo(self._repo, comando.trabajo_id)
-        trabajo.cerrar()
-        self._repo.guardar(trabajo)
+        with self._uow as uow:
+            trabajo = cargar_trabajo(uow.trabajos, comando.trabajo_id)
+            trabajo.cerrar()
+            uow.trabajos.guardar(trabajo)
+            uow.confirmar()
+        # Fuera de la transaccion: los eventos se anuncian cuando el hecho ya es definitivo.
         despachar_eventos_pendientes(trabajo, self._dispatcher)
         return trabajo_a_dto(trabajo)

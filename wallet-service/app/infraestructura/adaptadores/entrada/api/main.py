@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from app.dominio.errores import (
     BilleteraDuplicadaError,
+    BilleteraNoEliminableError,
     BilleteraNoEncontradaError,
     FondosInsuficientesError,
 )
@@ -41,6 +42,10 @@ def crear_app(*, inicializar_db: bool = True) -> FastAPI:
 
     @application.exception_handler(FondosInsuficientesError)
     async def fondos_insuficientes(_: Request, exc: FondosInsuficientesError):
+        return JSONResponse(status_code=status.HTTP_409_CONFLICT, content={"detalle": str(exc)})
+
+    @application.exception_handler(BilleteraNoEliminableError)
+    async def no_eliminable(_: Request, exc: BilleteraNoEliminableError):
         return JSONResponse(status_code=status.HTTP_409_CONFLICT, content={"detalle": str(exc)})
 
     @application.exception_handler(DomainError)

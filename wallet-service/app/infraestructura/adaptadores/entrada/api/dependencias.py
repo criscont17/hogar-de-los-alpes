@@ -5,8 +5,10 @@ from sqlalchemy.orm import Session
 
 from app.aplicacion.comandos import (
     AcreditarSaldoHandler,
+    CambiarEstadoBilleteraHandler,
     CrearBilleteraHandler,
     DebitarSaldoHandler,
+    EliminarBilleteraHandler,
     ProcesarTrabajoLiquidadoHandler,
 )
 from app.aplicacion.manejadores import (
@@ -14,7 +16,13 @@ from app.aplicacion.manejadores import (
     PublicarEventoDeIntegracionHandler,
 )
 from app.aplicacion.puertos import DomainEventDispatcher, MessageBroker
-from app.aplicacion.queries import ListarMovimientosHandler, ObtenerSaldoHandler
+from app.aplicacion.queries import (
+    ListarBilleterasHandler,
+    ListarMovimientosHandler,
+    ObtenerBilleteraHandler,
+    ObtenerMovimientoHandler,
+    ObtenerSaldoHandler,
+)
 from app.infraestructura.adaptadores.salida.eventos import InMemoryDomainEventDispatcher
 from app.infraestructura.adaptadores.salida.mensajeria import LoggingMessageBroker
 from app.infraestructura.adaptadores.salida.persistencia.db import obtener_sesion
@@ -72,12 +80,40 @@ def obtener_debitar_handler(
     return DebitarSaldoHandler(repo, dispatcher)
 
 
+def obtener_cambiar_estado_handler(
+    repo=Depends(obtener_repo),
+    dispatcher: DomainEventDispatcher = Depends(obtener_dispatcher),
+) -> CambiarEstadoBilleteraHandler:
+    return CambiarEstadoBilleteraHandler(repo, dispatcher)
+
+
+def obtener_eliminar_handler(
+    repo=Depends(obtener_repo),
+    dispatcher: DomainEventDispatcher = Depends(obtener_dispatcher),
+) -> EliminarBilleteraHandler:
+    return EliminarBilleteraHandler(repo, dispatcher)
+
+
 def obtener_saldo_handler(repo=Depends(obtener_repo)) -> ObtenerSaldoHandler:
     return ObtenerSaldoHandler(repo)
 
 
+def obtener_billetera_handler(repo=Depends(obtener_repo)) -> ObtenerBilleteraHandler:
+    return ObtenerBilleteraHandler(repo)
+
+
+def obtener_listar_billeteras_handler(
+    repo=Depends(obtener_repo),
+) -> ListarBilleterasHandler:
+    return ListarBilleterasHandler(repo)
+
+
 def obtener_movimientos_handler(repo=Depends(obtener_repo)) -> ListarMovimientosHandler:
     return ListarMovimientosHandler(repo)
+
+
+def obtener_movimiento_handler(repo=Depends(obtener_repo)) -> ObtenerMovimientoHandler:
+    return ObtenerMovimientoHandler(repo)
 
 
 def obtener_trabajo_liquidado_handler(

@@ -15,3 +15,7 @@ class TrabajoDePartnerNoEncontradoError(ApplicationError):
 
 class GestionDeTrabajosNoDisponibleError(ApplicationError):
     """No se pudo entregar la solicitud a GestionDeTrabajosBC; el partner puede reintentar."""
+
+
+class SolicitudYaRegistradaError(ApplicationError):
+    """Otro proceso registró la vista del trabajo mientras se escribía esta."""

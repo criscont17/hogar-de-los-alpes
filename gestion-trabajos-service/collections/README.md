@@ -3,7 +3,7 @@
 | Archivo | Qué es |
 |---|---|
 | `GestionTrabajosBC.postman_collection.json` | Flujo completo de un trabajo de Marketplace y casos de error del agregado |
-| `GestionTrabajosBC.local.postman_environment.json` | Environment con `base_url` apuntando a `localhost:8001` |
+| `GestionTrabajosBC.local.postman_environment.json` | Environment con `base_url` apuntando a `127.0.0.1:8001` |
 
 Los escenarios de calidad con partners B2B2C (Interoperabilidad #9 y Modificabilidad #3) están
 en la colección de [`operaciones-service/collections/`](../../operaciones-service/collections/README.md).

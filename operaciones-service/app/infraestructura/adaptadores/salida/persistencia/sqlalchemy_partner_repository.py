@@ -25,26 +25,28 @@ class SqlAlchemyPartnerRepository(PartnerRepository):
         self._session = session
 
     def guardar(self, partner: Partner) -> None:
-        try:
-            model = self._session.get(PartnerModel, str(partner.id))
-            if model is None:
-                model = PartnerModel(id=str(partner.id), fecha_registro=partner.fecha_registro)
-                self._session.add(model)
-            acuerdo = partner.acuerdo
-            model.nombre = partner.nombre
-            model.pais = partner.pais
-            model.red_de_proveedores = (
-                sorted(acuerdo.red_de_proveedores) if acuerdo.red_de_proveedores is not None else None
-            )
-            model.condiciones = [
-                {"tipo": c.tipo.value, "clave": c.clave, "valor": str(c.valor)}
-                for c in acuerdo.condiciones
-            ]
-            model.fecha_actualizacion = datetime.now(timezone.utc)
-            self._session.commit()
-        except Exception:
-            self._session.rollback()
-            raise
+        """Escribe el agregado en la transaccion abierta por la unidad de trabajo.
+
+        Hace `flush`, no `commit`: confirmar es responsabilidad de la unidad de trabajo.
+        """
+
+        model = self._session.get(PartnerModel, str(partner.id))
+        if model is None:
+            model = PartnerModel(id=str(partner.id), fecha_registro=partner.fecha_registro)
+            self._session.add(model)
+        acuerdo = partner.acuerdo
+        model.nombre = partner.nombre
+        model.pais = partner.pais
+        model.red_de_proveedores = (
+            sorted(acuerdo.red_de_proveedores) if acuerdo.red_de_proveedores is not None else None
+        )
+        model.condiciones = [
+            {"tipo": c.tipo.value, "clave": c.clave, "valor": str(c.valor)}
+            for c in acuerdo.condiciones
+        ]
+        model.fecha_actualizacion = datetime.now(timezone.utc)
+        self._session.flush()
+
 
     def obtener_por_id(self, id: PartnerId) -> Partner | None:
         return self._a_dominio(self._session.get(PartnerModel, str(id)))

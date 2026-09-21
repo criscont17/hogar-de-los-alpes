@@ -9,15 +9,11 @@ from collections.abc import Callable
 from decimal import Decimal
 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 
 from app.aplicacion.comandos import CondicionComercialSolicitada, RegistrarPartnerCommand
+from app.aplicacion.puertos import UnidadDeTrabajo
 from app.dominio.partner import PartnerId
 from app.infraestructura import contenedor
-from app.infraestructura.adaptadores.salida.persistencia.db import SessionLocal
-from app.infraestructura.adaptadores.salida.persistencia.sqlalchemy_partner_repository import (
-    SqlAlchemyPartnerRepository,
-)
 
 logger = logging.getLogger("operaciones.semilla")
 
@@ -75,13 +71,16 @@ PARTNERS_INICIALES: tuple[RegistrarPartnerCommand, ...] = (
 )
 
 
-def sembrar_partners(fabrica_de_sesiones: Callable[[], Session] = SessionLocal) -> None:
+def sembrar_partners(
+    fabrica_de_unidades: Callable[[], UnidadDeTrabajo] = contenedor.unidad_de_trabajo,
+) -> None:
     for comando in PARTNERS_INICIALES:
-        with fabrica_de_sesiones() as session:
-            if SqlAlchemyPartnerRepository(session).obtener_por_id(PartnerId(comando.partner_id)):
+        with fabrica_de_unidades() as uow:
+            if uow.partners.obtener_por_id(PartnerId(comando.partner_id)):
                 continue
-            try:
-                contenedor.handlers_de_comandos(session)[RegistrarPartnerCommand].ejecutar(comando)
-            except IntegrityError:
-                # Otra réplica lo registró al mismo tiempo.
-                logger.info("partner %s ya registrado por otra instancia", comando.partner_id)
+        try:
+            handlers = contenedor.handlers_de_comandos(fabrica_de_unidades())
+            handlers[RegistrarPartnerCommand].ejecutar(comando)
+        except IntegrityError:
+            # Otra réplica lo registró al mismo tiempo.
+            logger.info("partner %s ya registrado por otra instancia", comando.partner_id)

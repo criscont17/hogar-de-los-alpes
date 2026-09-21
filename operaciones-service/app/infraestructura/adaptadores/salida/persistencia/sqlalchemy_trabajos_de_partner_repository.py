@@ -9,6 +9,7 @@ from app.aplicacion.dtos import (
     SubTrabajoDePartnerDTO,
     TrabajoDePartnerDTO,
 )
+from app.aplicacion.errores import SolicitudYaRegistradaError
 from app.aplicacion.puertos import TrabajosDePartnerRepository
 
 from .modelos_orm import TrabajoDePartnerModel
@@ -29,42 +30,40 @@ class SqlAlchemyTrabajosDePartnerRepository(TrabajosDePartnerRepository):
         return self._a_dto(model) if model is not None else None
 
     def registrar_solicitud(self, trabajo: TrabajoDePartnerDTO) -> TrabajoDePartnerDTO:
+        """Deja constancia de la solicitud si el partner no la habia pedido ya."""
+
         llave = (trabajo.partner_id, trabajo.referencia_externa)
+        model = self._session.get(TrabajoDePartnerModel, llave, populate_existing=True)
+        if model is not None and model.estado != EstadoTrabajoDePartner.RECHAZADO.value:
+            return self._a_dto(model)
+        if model is None:
+            model = TrabajoDePartnerModel(
+                partner_id=trabajo.partner_id, referencia_externa=trabajo.referencia_externa
+            )
+            self._session.add(model)
+        self._copiar(trabajo, model)
         try:
-            model = self._session.get(TrabajoDePartnerModel, llave, populate_existing=True)
-            if model is not None and model.estado != EstadoTrabajoDePartner.RECHAZADO.value:
-                return self._a_dto(model)
-            if model is None:
-                model = TrabajoDePartnerModel(
-                    partner_id=trabajo.partner_id, referencia_externa=trabajo.referencia_externa
-                )
-                self._session.add(model)
-            self._copiar(trabajo, model)
-            self._session.commit()
-        except IntegrityError:
-            # El consumidor de eventos creó la vista entre la lectura y la escritura.
-            self._session.rollback()
-            model = self._session.get(TrabajoDePartnerModel, llave, populate_existing=True)
-        except Exception:
-            self._session.rollback()
-            raise
+            self._session.flush()
+        except IntegrityError as exc:
+            # El consumidor de eventos creo la vista entre la lectura y la escritura.
+            raise SolicitudYaRegistradaError(
+                "La vista del trabajo fue registrada por otro proceso"
+            ) from exc
         return self._a_dto(model)
 
     def guardar(self, trabajo: TrabajoDePartnerDTO) -> None:
-        try:
-            model = self._session.get(
-                TrabajoDePartnerModel, (trabajo.partner_id, trabajo.referencia_externa)
+        """Actualiza la vista dentro de la transaccion abierta por la unidad de trabajo."""
+
+        model = self._session.get(
+            TrabajoDePartnerModel, (trabajo.partner_id, trabajo.referencia_externa)
+        )
+        if model is None:
+            model = TrabajoDePartnerModel(
+                partner_id=trabajo.partner_id, referencia_externa=trabajo.referencia_externa
             )
-            if model is None:
-                model = TrabajoDePartnerModel(
-                    partner_id=trabajo.partner_id, referencia_externa=trabajo.referencia_externa
-                )
-                self._session.add(model)
-            self._copiar(trabajo, model)
-            self._session.commit()
-        except Exception:
-            self._session.rollback()
-            raise
+            self._session.add(model)
+        self._copiar(trabajo, model)
+        self._session.flush()
 
     @staticmethod
     def _copiar(trabajo: TrabajoDePartnerDTO, model: TrabajoDePartnerModel) -> None:

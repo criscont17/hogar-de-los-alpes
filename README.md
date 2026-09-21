@@ -2,7 +2,9 @@
 
 > **Maestría en Ingeniería de Software (MISO) · 2026-14**  
 > Curso: Diseño y Arquitectura de Aplicaciones No Monolíticas (DANM)  
-> Proyecto: Migración del sistema monolítico de Hogar de los Alpes (HdA) a una arquitectura reactiva distribuida basada en eventos.
+> Proyecto: Migración del sistema monolítico de Hogar de los Alpes (HdA) a una arquitectura reactiva distribuida basada en eventos.  
+> 
+> 👥 **Equipo y Responsabilidades:** Consulte la distribución detallada de tareas por integrante y escenarios de calidad en [`docs/semana-6/tareas-integrantes.md`](docs/semana-6/tareas-integrantes.md).
 
 ## Implementación WalletBC
 
@@ -205,10 +207,14 @@ Una ruta que no existe responde `404` en JSON. Si un servicio está caído, sus 
   escenario 3, no obliga a reiniciar el gateway, y el gateway arranca aunque falte un servicio.
 - **Sin TLS por ahora.** Si se pone un balanceador de AWS con certificado delante de la VM,
   el gateway conserva `X-Forwarded-Proto`.
+- **Use `127.0.0.1`, no `localhost`, para los puertos directos.** Al estar ligados solo a la
+  interfaz IPv4, un cliente que resuelva `localhost` intenta primero `::1` y pierde unos 2
+  segundos por petición antes de caer a IPv4. El gateway no tiene ese problema: escucha en
+  ambas familias.
 
 ### Postman a través del gateway
 
-Las colecciones apuntan por defecto a los puertos directos (`localhost:800x`), que funcionan
+Las colecciones apuntan por defecto a los puertos directos (`127.0.0.1:800x`), que funcionan
 desde la misma máquina. Para usarlas contra la VM, cambie las variables base del environment
 a la entrada pública:
 
@@ -308,6 +314,26 @@ ContextMapper es la herramienta usada para modelar dominios, sub-dominios y cont
 | Dominios y sub-dominios identificados y documentados con DSL de ContextMapper | `hda-dominios.cml` | [`docs/semana-2/dominios-subdominios/`](docs/semana-2/dominios-subdominios/) |
 | Lenguaje ubicuo documentado | Imágenes / diagramas | [`docs/semana-2/lenguaje-ubicuo/`](docs/semana-2/lenguaje-ubicuo/) |
 | Mapas de contextos acotados (AS-IS y TO-BE) en DSL de ContextMapper | `hda-context-map-*.cml` | [`docs/semana-2/contextos-acotados/`](docs/semana-2/contextos-acotados/) |
+
+### Semana 6 — Microservicios, Persistencia y Escenarios de Calidad
+
+| Descripción | Artefacto | Ubicación |
+|---|---|---|
+| Distribución de Tareas y Responsabilidades del Equipo | `tareas-integrantes.md` | [`docs/semana-6/tareas-integrantes.md`](docs/semana-6/tareas-integrantes.md) |
+| Implementación WalletBC | Microservicio | [`wallet-service/`](wallet-service/) |
+| Implementación GestionDeTrabajosBC | Microservicio | [`gestion-trabajos-service/`](gestion-trabajos-service/) |
+| Implementación OperacionesBC | Microservicio | [`operaciones-service/`](operaciones-service/) |
+| Implementación PagosBC | Microservicio | [`pagos-service/`](pagos-service/) |
+
+### Semana 7 — Transacciones Distribuidas (Sagas), Saga Log, BFF y Experimentación
+
+| Descripción | Artefacto | Ubicación |
+|---|---|---|
+| Índice general de entrega Semana 7 | `README.md` | [`docs/semana-7/README.md`](docs/semana-7/README.md) |
+| Patrón de Sagas y Saga Log | `patron-sagas-y-saga-log.md` | [`docs/semana-7/patron-sagas-y-saga-log.md`](docs/semana-7/patron-sagas-y-saga-log.md) |
+| Backend For Frontend (BFF) | `backend-for-frontend-bff.md` | [`docs/semana-7/backend-for-frontend-bff.md`](docs/semana-7/backend-for-frontend-bff.md) |
+| Informe Técnico de Experimentación | `informe-experimentacion.md` | [`docs/semana-7/informe-experimentacion.md`](docs/semana-7/informe-experimentacion.md) |
+| Refinamiento TO-BE y Vistas Dinámicas | `arquitectura-to-be-refinada.md` | [`docs/semana-7/arquitectura-to-be-refinada.md`](docs/semana-7/arquitectura-to-be-refinada.md) |
 
 ---
 

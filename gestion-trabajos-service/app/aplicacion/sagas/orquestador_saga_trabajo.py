@@ -40,16 +40,35 @@ class OrquestadorSagaTrabajo:
     def __init__(
         self,
         saga_log_repo,
-        trabajo_repo,
-        command_publisher,
-        topico_comandos_pago: str,
-        topico_comandos_operaciones: str,
+        trabajo_repo=None,
+        command_publisher=None,
+        topico_comandos_pago: str = "",
+        topico_comandos_operaciones: str = "",
+        fabrica_uow=None,
     ) -> None:
         self._saga_log = saga_log_repo
         self._trabajos = trabajo_repo
+        self._fabrica_uow = fabrica_uow
         self._publisher = command_publisher
         self._topico_pago = topico_comandos_pago
         self._topico_ops = topico_comandos_operaciones
+
+    def _guardar_trabajo(self, trabajo: Trabajo) -> None:
+        if self._fabrica_uow is not None:
+            with self._fabrica_uow() as uow:
+                uow.trabajos.guardar(trabajo)
+                uow.confirmar()
+        elif self._trabajos is not None:
+            self._trabajos.guardar(trabajo)
+
+    def _obtener_trabajo(self, trabajo_id: TrabajoId) -> Trabajo | None:
+        if self._fabrica_uow is not None:
+            with self._fabrica_uow() as uow:
+                return uow.trabajos.obtener_por_id(trabajo_id)
+        elif self._trabajos is not None:
+            return self._trabajos.obtener_por_id(trabajo_id)
+        return None
+
 
     def iniciar_saga(self, solicitud: SolicitudInicioSaga) -> UUID:
         saga_id = uuid4()
@@ -117,7 +136,7 @@ class OrquestadorSagaTrabajo:
             comando_enviado={"trabajo_id": str(trabajo_id)},
         )
 
-        self._trabajos.guardar(trabajo)
+        self._guardar_trabajo(trabajo)
 
         self._saga_log.registrar_paso_completado(
             saga_id=saga_id,
@@ -207,9 +226,9 @@ class OrquestadorSagaTrabajo:
             return
 
         # Paso 4: Finalizar exitosamente la transacción
-        trabajo = self._trabajos.obtener_por_id(TrabajoId(instancia.trabajo_id))
+        trabajo = self._obtener_trabajo(TrabajoId(instancia.trabajo_id))
         if trabajo:
-            self._trabajos.guardar(trabajo)
+            self._guardar_trabajo(trabajo)
 
         self._saga_log.finalizar_saga(saga_id=saga_id, estado_final="COMPLETADA_EXITOSA")
         logger.info("Saga %s COMPLETADA EXITOSAMENTE", saga_id)
@@ -229,10 +248,10 @@ class OrquestadorSagaTrabajo:
             return
 
         # Compensar Paso 1: Cancelar trabajo en GestionDeTrabajosBC
-        trabajo = self._trabajos.obtener_por_id(TrabajoId(instancia.trabajo_id))
+        trabajo = self._obtener_trabajo(TrabajoId(instancia.trabajo_id))
         if trabajo:
             trabajo.cancelar(motivo=f"Saga fallida por pago: {motivo}")
-            self._trabajos.guardar(trabajo)
+            self._guardar_trabajo(trabajo)
 
         self._saga_log.registrar_paso_compensacion(
             saga_id=saga_id,
@@ -283,10 +302,10 @@ class OrquestadorSagaTrabajo:
         )
 
         # 2. Compensar Paso 1: Cancelar trabajo en GestionDeTrabajosBC
-        trabajo = self._trabajos.obtener_por_id(TrabajoId(instancia.trabajo_id))
+        trabajo = self._obtener_trabajo(TrabajoId(instancia.trabajo_id))
         if trabajo:
             trabajo.cancelar(motivo=f"Saga fallida por asignación: {motivo}")
-            self._trabajos.guardar(trabajo)
+            self._guardar_trabajo(trabajo)
 
         self._saga_log.registrar_paso_compensacion(
             saga_id=saga_id,

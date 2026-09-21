@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from app.dominio.errores import (
+    BilleteraNoEliminableError,
     BilleteraSuspendidaError,
     FondosInsuficientesError,
     MontoInvalidoError,
@@ -9,7 +10,13 @@ from app.seedwork.dominio import AggregateRoot
 
 from .dinero import Dinero
 from .enums import EstadoBilletera, MotivoMovimiento, TipoMovimiento
-from .eventos import DebitoRechazado, SaldoAcreditado, SaldoDebitado
+from .eventos import (
+    BilleteraEliminada,
+    DebitoRechazado,
+    EstadoBilleteraCambiado,
+    SaldoAcreditado,
+    SaldoDebitado,
+)
 from .identificadores import BilleteraId, MovimientoId
 from .movimiento import Movimiento
 
@@ -121,10 +128,45 @@ class Billetera(AggregateRoot[BilleteraId]):
         )
 
     def suspender(self) -> None:
-        self._estado = EstadoBilletera.SUSPENDIDA
+        self._cambiar_estado(EstadoBilletera.SUSPENDIDA)
 
     def reactivar(self) -> None:
-        self._estado = EstadoBilletera.ACTIVA
+        self._cambiar_estado(EstadoBilletera.ACTIVA)
+
+    def confirmar_eliminacion(self) -> None:
+        """Valida que la billetera pueda retirarse y anuncia el hecho.
+
+        Una billetera con saldo representa dinero adeudado al proveedor: borrarla
+        haría desaparecer ese pasivo sin contrapartida contable.
+        """
+
+        if self._saldo.monto > 0:
+            raise BilleteraNoEliminableError(
+                "No se puede eliminar una billetera con saldo disponible"
+            )
+        self.add_domain_event(
+            BilleteraEliminada(
+                billetera_id=str(self.id),
+                proveedor_id=self.proveedor_id,
+                fecha=datetime.now(timezone.utc),
+            )
+        )
+
+    def _cambiar_estado(self, estado: EstadoBilletera) -> None:
+        """Aplica el nuevo estado. Repetir el estado actual no es un hecho nuevo."""
+
+        if self._estado is estado:
+            return
+        anterior = self._estado
+        self._estado = estado
+        self.add_domain_event(
+            EstadoBilleteraCambiado(
+                billetera_id=str(self.id),
+                estado_anterior=anterior.value,
+                estado_nuevo=estado.value,
+                fecha=datetime.now(timezone.utc),
+            )
+        )
 
     @staticmethod
     def _validar_monto_positivo(monto: Dinero) -> None:

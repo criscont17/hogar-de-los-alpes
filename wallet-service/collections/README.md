@@ -2,17 +2,18 @@
 
 | Archivo | Qué es |
 |---|---|
-| `WalletBC.postman_collection.json` | Colección con los 6 endpoints y los casos de error |
-| `WalletBC.local.postman_environment.json` | Environment con `base_url` apuntando a localhost |
+| `WalletBC.postman_collection.json` | Colección con los 11 endpoints, los casos de error y la administración CRUD |
+| `WalletBC.local.postman_environment.json` | Environment con `base_url` apuntando al gateway local |
 
 ## Uso
 
-1. Levante el servicio:
+Las rutas van bajo el prefijo `/wallet` de la entrada pública (`{{base_url}}/wallet/billeteras`),
+así que la colección se ejecuta contra el gateway, no contra el puerto del servicio.
+
+1. Levante la plataforma desde la raíz del repositorio:
 
    ```bash
-   cd wallet-service
-   env\Scripts\activate.bat
-   uvicorn app.infraestructura.adaptadores.entrada.api.main:app --reload
+   docker compose up -d --build --wait
    ```
 
 2. En Postman, **Import** → arrastre los dos archivos de esta carpeta.
@@ -22,6 +23,15 @@
 
 El environment es opcional: la colección ya trae `base_url` como variable propia. Solo
 hace falta si quiere apuntar a otro host sin editar la colección.
+
+`base_url` es `http://localhost`, el gateway en el puerto 80. Para el despliegue en AWS,
+cámbielo por el host público; si levantó el gateway en otro puerto con `PUERTO_GATEWAY`,
+agréguelo ahí (`http://localhost:8088`).
+
+El gateway quita el prefijo antes de reenviar, de modo que `/wallet/billeteras` llega al
+servicio como `/billeteras`. Si prefiere golpear el contenedor directo en `127.0.0.1:8000`
+—o un `uvicorn` local sin Docker— tiene que quitar el segmento `/wallet` de las rutas: el
+prefijo solo existe en la entrada pública.
 
 ## Cómo está organizada
 
@@ -41,12 +51,30 @@ hace falta si quiere apuntar a otro host sin editar la colección.
 fondos insuficientes (409), billetera inexistente (404), monto negativo (400), moneda
 distinta a la de la billetera (400) y motivo inválido (400).
 
+**03 Administración CRUD** — gestión de datos sobre esa misma billetera, que a esta altura
+tiene saldo 205.000 y 3 movimientos:
+
+| # | Request | Qué comprueba |
+|---|---|---|
+| 1 | Listar billeteras (paginado) | La respuesta es una página: `items`, `total`, `limite`, `desplazamiento` |
+| 2 | Listar filtrando por proveedor | Un proveedor tiene exactamente una billetera |
+| 3 | Obtener billetera (detalle) | Agrega `fecha_creacion` y `total_movimientos` |
+| 4 | Suspender billetera | Estado `Suspendida` y `EstadoBilleteraCambiadoV1` en el log |
+| 5 | Debitar billetera suspendida | 400: suspender surte efecto |
+| 6 | Reactivar billetera | Vuelve a `Activa` |
+| 7 | Eliminar billetera con saldo | 409: el saldo la protege |
+| 8 | Crear billetera temporal | Billetera desechable en cero |
+| 9 | Eliminar billetera temporal | 204 sin cuerpo, y `BilleteraEliminadaV1` en el log |
+| 10 | Consultar la eliminada | 404 |
+
 ## Variables
 
 `proveedor_id` y `trabajo_id` se generan en el primer request de cada corrida, y
-`billetera_id` se captura de la respuesta. No hay que rellenar nada a mano, y como los
-identificadores son nuevos cada vez, la colección se puede ejecutar tantas veces como
-quiera sin limpiar la base ni ajustar los saldos esperados.
+`billetera_id` se captura de la respuesta. `proveedor_temporal` y `billetera_temporal`
+cumplen el mismo papel para la billetera desechable que se borra en la carpeta 03. No hay
+que rellenar nada a mano, y como los identificadores son nuevos cada vez, la colección se
+puede ejecutar tantas veces como quiera sin limpiar la base ni ajustar los saldos
+esperados.
 
 ## Qué mirar en los logs
 

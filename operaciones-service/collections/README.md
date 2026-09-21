@@ -4,6 +4,7 @@
 |---|---|
 | `EscenariosDeCalidad.postman_collection.json` | Escenarios de Interoperabilidad (#9) y Modificabilidad (#3) sobre OperacionesBC y GestionDeTrabajosBC |
 | `EscenariosDeCalidad.local.postman_environment.json` | Environment con `base_operaciones` (8002) y `base_trabajos` (8001) |
+| `PresentacionInteroperabilidad.aws.postman_collection.json` | Solo el escenario 9 (carpetas 01 a 04) contra la VM de AWS, a través de la entrada pública; no necesita environment |
 
 ## Preparación
 

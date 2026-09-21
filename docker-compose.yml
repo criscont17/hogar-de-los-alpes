@@ -3,6 +3,8 @@
 # La única entrada pública es `gateway` (Nginx, puerto 80). Bases de datos, Pulsar y las
 # APIs directas quedan ligadas a 127.0.0.1: se usan desde la propia máquina (Postman,
 # scripts) pero no quedan expuestas en la VM aunque el security group se abra de más.
+# Use 127.0.0.1 y no `localhost` para llegar a esos puertos: al no haber listener IPv6,
+# los clientes que resuelven localhost intentan ::1 primero y pierden ~2 s por petición.
 # Para exponerlas a propósito: IP_PUERTOS_INTERNOS=0.0.0.0 docker compose up -d
 #
 # Cada API arranca con UVICORN_ROOT_PATH igual a su prefijo en el gateway, para que

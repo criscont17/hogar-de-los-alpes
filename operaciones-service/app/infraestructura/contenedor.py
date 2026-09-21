@@ -7,8 +7,6 @@ una vez por proceso y `reiniciar()` las libera al apagar el servicio.
 from functools import lru_cache
 from typing import Any
 
-from sqlalchemy.orm import Session
-
 from app.aplicacion.comandos import (
     CrearTrabajoDesdePartnerCommand,
     CrearTrabajoDesdePartnerHandler,
@@ -18,7 +16,7 @@ from app.aplicacion.comandos import (
     RegistrarPartnerHandler,
 )
 from app.aplicacion.manejadores import AuditarEventoDeDominioHandler
-from app.aplicacion.puertos import DomainEventDispatcher, GestionDeTrabajos
+from app.aplicacion.puertos import DomainEventDispatcher, GestionDeTrabajos, UnidadDeTrabajo
 from app.infraestructura.adaptadores.acl_partners import (
     CatalogoDeAdaptadoresEnMemoria,
     construir_catalogo,
@@ -28,11 +26,8 @@ from app.infraestructura.adaptadores.salida.gestion_de_trabajos import (
     LoggingGestionDeTrabajos,
     PulsarGestionDeTrabajos,
 )
-from app.infraestructura.adaptadores.salida.persistencia.sqlalchemy_partner_repository import (
-    SqlAlchemyPartnerRepository,
-)
-from app.infraestructura.adaptadores.salida.persistencia.sqlalchemy_trabajos_de_partner_repository import (
-    SqlAlchemyTrabajosDePartnerRepository,
+from app.infraestructura.adaptadores.salida.persistencia.sqlalchemy_unidad_de_trabajo import (
+    SqlAlchemyUnidadDeTrabajo,
 )
 from app.infraestructura.configuracion import (
     MESSAGE_BROKER,
@@ -70,18 +65,26 @@ def obtener_dispatcher() -> DomainEventDispatcher:
     return dispatcher
 
 
-def handlers_de_comandos(session: Session) -> dict[type, Any]:
-    """Casos de uso de escritura, con repositorios atados a `session`."""
+def unidad_de_trabajo() -> UnidadDeTrabajo:
+    """Nueva unidad de trabajo: aqui se decide la tecnologia de la transaccion.
 
-    partners = SqlAlchemyPartnerRepository(session)
-    trabajos = SqlAlchemyTrabajosDePartnerRepository(session)
+    Se crea una por peticion HTTP o por evento de Pulsar, porque cada una abre y cierra
+    su propia sesion de base de datos con los dos repositorios encima.
+    """
+
+    return SqlAlchemyUnidadDeTrabajo()
+
+
+def handlers_de_comandos(uow: UnidadDeTrabajo) -> dict[type, Any]:
+    """Casos de uso de escritura; `uow` delimita la transaccion de cada uno."""
+
     adaptadores = obtener_catalogo_adaptadores()
     return {
-        RegistrarPartnerCommand: RegistrarPartnerHandler(partners, adaptadores, obtener_dispatcher()),
+        RegistrarPartnerCommand: RegistrarPartnerHandler(uow, adaptadores, obtener_dispatcher()),
         CrearTrabajoDesdePartnerCommand: CrearTrabajoDesdePartnerHandler(
-            partners, adaptadores, trabajos, obtener_gestion_de_trabajos()
+            uow, adaptadores, obtener_gestion_de_trabajos()
         ),
-        ProcesarEventoDeTrabajoCommand: ProcesarEventoDeTrabajoHandler(trabajos, adaptadores),
+        ProcesarEventoDeTrabajoCommand: ProcesarEventoDeTrabajoHandler(uow, adaptadores),
     }
 
 

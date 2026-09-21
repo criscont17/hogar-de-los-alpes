@@ -8,8 +8,6 @@ broker existen una sola vez por proceso, y `reiniciar()` los libera al apagar.
 from functools import lru_cache
 from typing import Any
 
-from sqlalchemy.orm import Session
-
 from app.aplicacion.comandos import (
     AsignarProveedorCommand,
     AsignarProveedorHandler,
@@ -30,24 +28,24 @@ from app.aplicacion.manejadores import (
     AuditarEventoDeDominioHandler,
     PublicarEventoDeIntegracionHandler,
 )
-from app.aplicacion.puertos import DomainEventDispatcher, MessageBroker
+from app.aplicacion.puertos import DomainEventDispatcher, MessageBroker, UnidadDeTrabajo
+from app.aplicacion.sagas.orquestador_saga_trabajo import OrquestadorSagaTrabajo
 from app.infraestructura.adaptadores.salida.eventos import InMemoryDomainEventDispatcher
 from app.infraestructura.adaptadores.salida.mensajeria import (
     InMemoryMessageBroker,
     LoggingMessageBroker,
     PulsarMessageBroker,
 )
-from app.infraestructura.adaptadores.salida.persistencia.db import session_factory
-from app.infraestructura.adaptadores.salida.persistencia.sqlalchemy_saga_log_repository import (
-    SqlAlchemySagaLogRepository,
-)
-from app.infraestructura.adaptadores.salida.persistencia.sqlalchemy_trabajo_repository import (
-    SqlAlchemyTrabajoRepository,
-)
 from app.infraestructura.adaptadores.salida.mensajeria.pulsar_saga_command_publisher import (
     PulsarSagaCommandPublisher,
 )
-from app.aplicacion.sagas.orquestador_saga_trabajo import OrquestadorSagaTrabajo
+from app.infraestructura.adaptadores.salida.persistencia.db import SessionLocal
+from app.infraestructura.adaptadores.salida.persistencia.sqlalchemy_saga_log_repository import (
+    SqlAlchemySagaLogRepository,
+)
+from app.infraestructura.adaptadores.salida.persistencia.sqlalchemy_unidad_de_trabajo import (
+    SqlAlchemyUnidadDeTrabajo,
+)
 from app.infraestructura.configuracion import (
     MESSAGE_BROKER,
     PULSAR_TOPICO_COMANDOS_OPERACIONES,
@@ -79,9 +77,18 @@ def obtener_dispatcher() -> DomainEventDispatcher:
     return dispatcher
 
 
+def unidad_de_trabajo() -> UnidadDeTrabajo:
+    """Nueva unidad de trabajo: aquí se decide la tecnología de la transacción.
+
+    Se crea una por petición HTTP o por mensaje de Pulsar, porque cada una abre y cierra
+    su propia sesión de base de datos.
+    """
+    return SqlAlchemyUnidadDeTrabajo()
+
+
 @lru_cache(maxsize=1)
 def obtener_saga_log_repo() -> SqlAlchemySagaLogRepository:
-    return SqlAlchemySagaLogRepository(session_factory)
+    return SqlAlchemySagaLogRepository(SessionLocal)
 
 
 @lru_cache(maxsize=1)
@@ -91,32 +98,29 @@ def obtener_saga_command_publisher() -> PulsarSagaCommandPublisher:
 
 @lru_cache(maxsize=1)
 def obtener_orquestador_saga() -> OrquestadorSagaTrabajo:
-    session = session_factory()
-    trabajo_repo = SqlAlchemyTrabajoRepository(session)
     saga_log_repo = obtener_saga_log_repo()
     publisher = obtener_saga_command_publisher()
     return OrquestadorSagaTrabajo(
         saga_log_repo=saga_log_repo,
-        trabajo_repo=trabajo_repo,
+        fabrica_uow=unidad_de_trabajo,
         command_publisher=publisher,
         topico_comandos_pago=PULSAR_TOPICO_COMANDOS_PAGO,
         topico_comandos_operaciones=PULSAR_TOPICO_COMANDOS_OPERACIONES,
     )
 
 
-def handlers_de_comandos(session: Session) -> dict[type, Any]:
-    """Casos de uso de escritura, con un repositorio atado a `session`."""
+def handlers_de_comandos(uow: UnidadDeTrabajo) -> dict[type, Any]:
+    """Casos de uso de escritura; `uow` delimita la transacción de cada uno."""
 
-    repo = SqlAlchemyTrabajoRepository(session)
     dispatcher = obtener_dispatcher()
     return {
-        CrearTrabajoCommand: CrearTrabajoHandler(repo, dispatcher),
-        AsignarProveedorCommand: AsignarProveedorHandler(repo, dispatcher),
-        IniciarSubTrabajoCommand: IniciarSubTrabajoHandler(repo, dispatcher),
-        CompletarSubTrabajoCommand: CompletarSubTrabajoHandler(repo, dispatcher),
-        RegistrarRediagnosticoCommand: RegistrarRediagnosticoHandler(repo, dispatcher),
-        CancelarTrabajoCommand: CancelarTrabajoHandler(repo, dispatcher),
-        CerrarTrabajoCommand: CerrarTrabajoHandler(repo, dispatcher),
+        CrearTrabajoCommand: CrearTrabajoHandler(uow, dispatcher),
+        AsignarProveedorCommand: AsignarProveedorHandler(uow, dispatcher),
+        IniciarSubTrabajoCommand: IniciarSubTrabajoHandler(uow, dispatcher),
+        CompletarSubTrabajoCommand: CompletarSubTrabajoHandler(uow, dispatcher),
+        RegistrarRediagnosticoCommand: RegistrarRediagnosticoHandler(uow, dispatcher),
+        CancelarTrabajoCommand: CancelarTrabajoHandler(uow, dispatcher),
+        CerrarTrabajoCommand: CerrarTrabajoHandler(uow, dispatcher),
     }
 
 
@@ -125,11 +129,8 @@ def reiniciar() -> None:
 
     if obtener_broker.cache_info().currsize:
         obtener_broker().cerrar()
-    if obtener_saga_command_publisher.cache_info().currsize:
-        obtener_saga_command_publisher().cerrar()
     obtener_dispatcher.cache_clear()
     obtener_broker.cache_clear()
     obtener_saga_log_repo.cache_clear()
     obtener_saga_command_publisher.cache_clear()
     obtener_orquestador_saga.cache_clear()
-
