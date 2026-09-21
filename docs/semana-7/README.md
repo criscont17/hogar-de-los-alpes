@@ -9,9 +9,10 @@ Este directorio contiene la documentación técnica y evidencias correspondiente
 
 1. **[Patrón de Sagas y Saga Log](patron-sagas-y-saga-log.md)**
    - Justificación del modelo de orquestación frente a coreografía.
-   - Especificación de la máquina de estados y microservicios participantes.
-   - Detalle del flujo exitoso (*Happy Path*) y del flujo compensatorio ante fallos.
-   - Estructura del almacén persistente de *Saga Log* y consultas SQL de auditoría.
+   - Especificación de la máquina de estados y microservicios participantes (`GestionDeTrabajosBC`, `PagosBC`, `OperacionesBC`).
+   - Detalle del flujo exitoso (*Happy Path*) y del flujo compensatorio ante fallos (orden inverso).
+   - Estructura del almacén persistente de *Saga Log* (`saga_instancias`, `saga_pasos`) y consultas SQL de auditoría.
+   - Guía de reproducción de pruebas en memoria y con Docker/Pulsar.
 
 2. **[Backend For Frontend (BFF)](backend-for-frontend-bff.md)**
    - Propósito, arquitectura y responsabilidades del BFF como fachada síncrona.
@@ -28,3 +29,34 @@ Este directorio contiene la documentación técnica y evidencias correspondiente
    - Mapa de contextos acotados TO-BE actualizado (ContextMapper DSL y Mermaid).
    - Diagramas de secuencia del ciclo de vida de la Saga (Happy Path y Compensación).
    - Topología física y lógica de despliegue consolidada.
+
+---
+
+## 🚀 Verificación Rápida de la Entrega
+
+### Pruebas de la Saga y Saga Log (en memoria):
+```bash
+python3 gestion-trabajos-service/scripts/test_unitario_saga.py
+```
+
+### Pruebas de la Unidad de Trabajo (UoW en Pagos):
+```bash
+cd pagos-service
+DATABASE_URL="sqlite:///:memory:" python3 -m unittest discover -s tests
+```
+
+### Pruebas de Integración con Docker y Apache Pulsar:
+```bash
+# Levantar el stack completo
+docker compose up -d
+
+# Probar camino exitoso
+python3 -m gestion-trabajos-service.scripts.probar_saga_orquestada --modo exito
+
+# Probar compensación por rechazo en operaciones
+python3 -m gestion-trabajos-service.scripts.probar_saga_orquestada --modo compensar-operaciones
+
+# Probar compensación por rechazo en pago
+python3 -m gestion-trabajos-service.scripts.probar_saga_orquestada --modo compensar-pago
+```
+
