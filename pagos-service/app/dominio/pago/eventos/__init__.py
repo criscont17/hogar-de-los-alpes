@@ -3,6 +3,7 @@ from .pago_confirmado import PagoConfirmado
 from .pago_creado import PagoCreado
 from .pago_pendiente_de_conciliacion import PagoPendienteDeConciliacion
 from .pago_rechazado import PagoRechazado
+from .pago_revertido import PagoRevertido
 
 __all__ = [
     "EventoDePago",
@@ -10,4 +11,5 @@ __all__ = [
     "PagoCreado",
     "PagoPendienteDeConciliacion",
     "PagoRechazado",
+    "PagoRevertido",
 ]

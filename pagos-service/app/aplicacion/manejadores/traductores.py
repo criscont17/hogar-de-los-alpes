@@ -12,8 +12,14 @@ from app.aplicacion.eventos_integracion import (
     PagoConfirmadoV1,
     PagoPendienteDeConciliacionV1,
     PagoRechazadoV1,
+    PagoRevertidoV1,
 )
-from app.dominio.pago.eventos import PagoConfirmado, PagoPendienteDeConciliacion, PagoRechazado
+from app.dominio.pago.eventos import (
+    PagoConfirmado,
+    PagoPendienteDeConciliacion,
+    PagoRechazado,
+    PagoRevertido,
+)
 from app.seedwork.aplicacion import IntegrationEvent
 from app.seedwork.dominio import DomainEvent
 
@@ -61,10 +67,21 @@ def _a_pago_pendiente_de_conciliacion_v1(
     )
 
 
+def _a_pago_revertido_v1(evento: PagoRevertido) -> PagoRevertidoV1:
+    return PagoRevertidoV1(
+        **_base(evento),
+        monto=str(evento.monto),
+        moneda=evento.moneda,
+        psp=evento.psp,
+        motivo=evento.motivo,
+    )
+
+
 Traductor = Callable[[DomainEvent], IntegrationEvent]
 
 TRADUCTORES: dict[type[DomainEvent], tuple[Traductor, ...]] = {
     PagoConfirmado: (_a_pago_confirmado_v1,),
     PagoRechazado: (_a_pago_rechazado_v1,),
     PagoPendienteDeConciliacion: (_a_pago_pendiente_de_conciliacion_v1,),
+    PagoRevertido: (_a_pago_revertido_v1,),
 }

@@ -142,6 +142,7 @@ Siguiendo el feedback de la Entrega 6 y el diseño de `GestionDeTrabajosBC` y `O
 - El repositorio (`SqlAlchemyPagoRepository`) no realiza `commit()` ni `rollback()`; únicamente hace `flush()` dentro de la sesión de la UoW.
 - Si ocurre una excepción no controlada, `SqlAlchemyUnidadDeTrabajo` descarta las escrituras (`rollback()`) al salir del bloque `with`.
 - Los eventos de dominio se despachan exclusivamente **después** de confirmar la transacción en la base de datos.
+- Los comandos de saga (`AutorizarPagoTrabajoV1` y `RevertirPagoTrabajoV1`) usan el mismo puerto: persisten una autorización por `saga_id` y la reversión deja el pago en estado `Reversado` antes de responder al orquestador.
 
 ## Pruebas automatizadas
 

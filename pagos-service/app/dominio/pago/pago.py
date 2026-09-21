@@ -5,7 +5,7 @@ from app.seedwork.dominio import AggregateRoot
 
 from .dinero import Dinero
 from .enums import EstadoPago, TipoPago
-from .eventos import PagoConfirmado, PagoPendienteDeConciliacion, PagoRechazado
+from .eventos import PagoConfirmado, PagoPendienteDeConciliacion, PagoRechazado, PagoRevertido
 from .identificadores import PagoId
 
 
@@ -89,6 +89,31 @@ class Pago(AggregateRoot[PagoId]):
         self.motivo = motivo
         self.add_domain_event(
             PagoPendienteDeConciliacion(
+                pago_id=str(self.id),
+                trabajo_id=self.trabajo_id,
+                sub_trabajo_id=self.sub_trabajo_id,
+                proveedor_id=self.proveedor_id,
+                monto=self.monto.monto,
+                moneda=self.monto.moneda,
+                psp=self.psp,
+                motivo=motivo,
+            )
+        )
+
+    def revertir(self, motivo: str) -> None:
+        """Revierte una autorización ya confirmada como compensación de una saga."""
+
+        if self.estado is EstadoPago.REVERSADO:
+            return
+        if self.estado is not EstadoPago.CONFIRMADO:
+            raise TransicionInvalidaError(
+                f"El pago está en estado {self.estado.value}; solo se puede revertir "
+                "un pago Confirmado"
+            )
+        self.estado = EstadoPago.REVERSADO
+        self.motivo = motivo
+        self.add_domain_event(
+            PagoRevertido(
                 pago_id=str(self.id),
                 trabajo_id=self.trabajo_id,
                 sub_trabajo_id=self.sub_trabajo_id,
