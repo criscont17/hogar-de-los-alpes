@@ -18,6 +18,7 @@ from .trabajo_cancelado_v1 import TrabajoCanceladoV1
 from .trabajo_cerrado_v1 import TrabajoCerradoV1
 from .trabajo_creado_v1 import TrabajoCreadoV1
 from .trabajo_creado_v2 import TrabajoCreadoV2
+from .trabajo_en_disputa_v1 import TrabajoEnDisputaV1
 from .trabajo_rediagnosticado_v1 import TrabajoRediagnosticadoV1
 
 __all__ = [
@@ -32,5 +33,6 @@ __all__ = [
     "TrabajoCerradoV1",
     "TrabajoCreadoV1",
     "TrabajoCreadoV2",
+    "TrabajoEnDisputaV1",
     "TrabajoRediagnosticadoV1",
 ]

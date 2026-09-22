@@ -10,9 +10,11 @@
 
 La implementación ejecutable del bounded context de billetera se encuentra en
 `wallet-service/`. Incluye DDD, arquitectura hexagonal, CQS, PostgreSQL con SQLAlchemy,
-API FastAPI y eventos de dominio e integración simulada. Consulte
-[`wallet-service/README.md`](wallet-service/README.md) para instalarla, ejecutarla y
-probar sus endpoints.
+API FastAPI, patrón Unidad de Trabajo y eventos de dominio e integración. Es el último
+participante de la Saga de Activación de Servicio: acredita al proveedor su liquidación
+con reintentos y, si no lo consigue, deja el trabajo `EN_DISPUTA` en vez de compensar un
+servicio ya prestado. Consulte [`wallet-service/README.md`](wallet-service/README.md) para
+instalarla, ejecutarla y probar sus endpoints.
 
 ## Implementación GestionDeTrabajosBC
 
@@ -127,8 +129,8 @@ hogar-de-los-alpes/
 
 `docker-compose.yml` levanta el sistema completo en una sola máquina:
 
-- los cuatro microservicios;
-- una base PostgreSQL por servicio;
+- los cuatro microservicios de dominio y el BFF;
+- una base PostgreSQL por microservicio de dominio (el BFF no tiene base propia);
 - Apache Pulsar;
 - un **gateway Nginx**, que es la única entrada pública.
 
@@ -142,9 +144,14 @@ hogar-de-los-alpes/
       │            │              │            │
    wallet   gestion-trabajos  operaciones    pagos        ← solo red interna de Docker
       │            │              │            │
-   postgres   postgres-trabajos  postgres-   postgres-
-                   └──── Apache Pulsar ─────┘ pagos
+      ├── cada servicio con su propia base PostgreSQL ──┤
+      │            │              │            │
+      └────────────┴── Apache Pulsar ──┴────────┘        ← eventos y comandos
 ```
+
+El gateway también publica el BFF en `/api`. Los cuatro microservicios de dominio se
+comunican entre sí exclusivamente por Pulsar; WalletBC participa como último paso de la
+saga (tópicos `comandos-wallet` y `eventos-wallet`).
 
 ### Levantar el sistema
 

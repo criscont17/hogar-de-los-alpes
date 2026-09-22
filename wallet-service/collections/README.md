@@ -2,7 +2,7 @@
 
 | Archivo | Qué es |
 |---|---|
-| `WalletBC.postman_collection.json` | Colección con los 11 endpoints, los casos de error y la administración CRUD |
+| `WalletBC.postman_collection.json` | Colección con los 12 endpoints, los casos de error, la administración CRUD y el retiro del proveedor |
 | `WalletBC.local.postman_environment.json` | Environment con `base_url` apuntando al gateway local |
 
 ## Uso
@@ -67,11 +67,27 @@ tiene saldo 205.000 y 3 movimientos:
 | 9 | Eliminar billetera temporal | 204 sin cuerpo, y `BilleteraEliminadaV1` en el log |
 | 10 | Consultar la eliminada | 404 |
 
+**04 Retiro del proveedor** — `POST /proveedores/{proveedor_id}/wallet/retiros`, la ruta que
+consume el BFF: identifica la billetera **por el proveedor**, no por su id contable. El
+folder es autocontenido —crea su propia billetera y la borra al final— para no alterar los
+saldos que verifican los folders anteriores:
+
+| # | Request | Qué comprueba |
+|---|---|---|
+| 1 | Crear billetera para el retiro | Billetera propia del folder, en cero |
+| 2 | Acreditar 100.000 | Saldo disponible para retirar |
+| 3 | Retiro por proveedor de 30.000 | 200, saldo 70.000 y resuelve la billetera correcta |
+| 4 | Retiro sin fondos | 409 |
+| 5 | Retiro de un proveedor sin billetera | 404 |
+| 6 | Retirar el saldo restante | Saldo en cero |
+| 7 | Eliminar la billetera del retiro | 204 |
+
 ## Variables
 
 `proveedor_id` y `trabajo_id` se generan en el primer request de cada corrida, y
 `billetera_id` se captura de la respuesta. `proveedor_temporal` y `billetera_temporal`
-cumplen el mismo papel para la billetera desechable que se borra en la carpeta 03. No hay
+cumplen el mismo papel para la billetera desechable que se borra en la carpeta 03, y
+`proveedor_retiro` / `billetera_retiro` para la de la carpeta 04. No hay
 que rellenar nada a mano, y como los identificadores son nuevos cada vez, la colección se
 puede ejecutar tantas veces como quiera sin limpiar la base ni ajustar los saldos
 esperados.

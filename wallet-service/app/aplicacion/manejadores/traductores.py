@@ -8,6 +8,7 @@ de mensajería necesite saber serializar `Decimal`, `datetime` ni objetos valor.
 from collections.abc import Callable
 
 from app.aplicacion.eventos_integracion import (
+    AcreditacionRechazadaV1,
     BilleteraCreadaV1,
     BilleteraEliminadaV1,
     DebitoRechazadoV1,
@@ -16,6 +17,7 @@ from app.aplicacion.eventos_integracion import (
     SaldoDebitadoV1,
 )
 from app.dominio.billetera.eventos import (
+    AcreditacionRechazada,
     BilleteraCreada,
     BilleteraEliminada,
     DebitoRechazado,
@@ -70,6 +72,18 @@ def _de_debito_rechazado(evento: DebitoRechazado) -> DebitoRechazadoV1:
     )
 
 
+def _de_acreditacion_rechazada(evento: AcreditacionRechazada) -> AcreditacionRechazadaV1:
+    return AcreditacionRechazadaV1(
+        billetera_id=evento.billetera_id,
+        proveedor_id=evento.proveedor_id,
+        monto_solicitado=str(evento.monto_solicitado),
+        moneda=evento.moneda,
+        motivo_rechazo=evento.motivo_rechazo,
+        fecha=evento.fecha.isoformat(),
+        referencia_externa=evento.referencia_externa,
+    )
+
+
 def _de_estado_cambiado(evento: EstadoBilleteraCambiado) -> EstadoBilleteraCambiadoV1:
     return EstadoBilleteraCambiadoV1(
         billetera_id=evento.billetera_id,
@@ -94,6 +108,7 @@ TRADUCTORES: dict[type[DomainEvent], Traductor] = {
     SaldoAcreditado: _de_saldo_acreditado,
     SaldoDebitado: _de_saldo_debitado,
     DebitoRechazado: _de_debito_rechazado,
+    AcreditacionRechazada: _de_acreditacion_rechazada,
     EstadoBilleteraCambiado: _de_estado_cambiado,
     BilleteraEliminada: _de_billetera_eliminada,
 }

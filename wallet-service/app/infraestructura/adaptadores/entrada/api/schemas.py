@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.dominio.billetera import EstadoBilletera
+from app.dominio.billetera import EstadoBilletera, MotivoMovimiento
 
 
 class CrearBilleteraRequestSchema(BaseModel):
@@ -21,6 +21,14 @@ class AcreditarSaldoRequestSchema(BaseModel):
 class DebitarSaldoRequestSchema(BaseModel):
     monto: Decimal
     motivo: str
+    referencia_externa: str | None = None
+
+
+class RetiroProveedorRequestSchema(BaseModel):
+    """Retiro pedido por el proveedor. El motivo por omisión es el del caso de uso."""
+
+    monto: Decimal = Field(gt=0)
+    motivo: str = MotivoMovimiento.RETIRO_A_PROVEEDOR.value
     referencia_externa: str | None = None
 
 

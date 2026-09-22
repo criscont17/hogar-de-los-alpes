@@ -5,6 +5,7 @@ from app.aplicacion.comandos import (
     DebitarSaldoCommand,
     EliminarBilleteraCommand,
     ProcesarTrabajoLiquidadoCommand,
+    RetirarSaldoProveedorCommand,
 )
 from app.aplicacion.dtos import (
     BilleteraDetalleDTO,
@@ -29,6 +30,7 @@ from .schemas import (
     DebitarSaldoRequestSchema,
     MovimientoResponseSchema,
     PaginaBilleterasResponseSchema,
+    RetiroProveedorRequestSchema,
     TrabajoLiquidadoRequestSchema,
 )
 
@@ -50,6 +52,14 @@ def a_comando_debitar(
 ) -> DebitarSaldoCommand:
     return DebitarSaldoCommand(
         billetera_id, schema.monto, schema.motivo, schema.referencia_externa
+    )
+
+
+def a_comando_retiro_proveedor(
+    proveedor_id: str, schema: RetiroProveedorRequestSchema
+) -> RetirarSaldoProveedorCommand:
+    return RetirarSaldoProveedorCommand(
+        proveedor_id, schema.monto, schema.motivo, schema.referencia_externa
     )
 
 

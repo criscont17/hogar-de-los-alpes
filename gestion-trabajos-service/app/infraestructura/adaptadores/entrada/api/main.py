@@ -32,6 +32,7 @@ from app.infraestructura.configuracion import (
     PULSAR_TOPICO_COMANDOS,
     PULSAR_TOPICO_EVENTOS_OPERACIONES,
     PULSAR_TOPICO_EVENTOS_PAGO,
+    PULSAR_TOPICO_EVENTOS_WALLET,
     PULSAR_URL,
 )
 from app.seedwork.aplicacion import ApplicationError
@@ -92,7 +93,11 @@ def crear_app(*, inicializar_db: bool = True, iniciar_mensajeria: bool = True) -
             orquestador = contenedor.obtener_orquestador_saga()
             consumidor_saga = ConsumidorEventosSagaPulsar(
                 PULSAR_URL,
-                [PULSAR_TOPICO_EVENTOS_PAGO, PULSAR_TOPICO_EVENTOS_OPERACIONES],
+                [
+                    PULSAR_TOPICO_EVENTOS_PAGO,
+                    PULSAR_TOPICO_EVENTOS_OPERACIONES,
+                    PULSAR_TOPICO_EVENTOS_WALLET,
+                ],
                 PULSAR_SUSCRIPCION_SAGA,
                 orquestador,
             )

@@ -1,13 +1,27 @@
 import json
 import logging
 import threading
+from decimal import Decimal
 from typing import Any
 
-logger = logging.getLogger("operaciones.comandos_saga")
+logger = logging.getLogger("wallet.comandos_saga")
+
+# El documento de arquitectura nombra el comando `AcreditarProveedor` y los eventos
+# `WalletAcreditada` / `AcreditacionFallida`; en el bus viajan con sufijo de versión,
+# como el resto de contratos del sistema. Se aceptan ambas formas al consumir.
+COMANDO_ACREDITAR = {"AcreditarProveedorV1", "AcreditarProveedor"}
+EVENTO_ACREDITADA = "WalletAcreditadaV1"
+EVENTO_FALLIDA = "AcreditacionFallidaV1"
 
 
-class ConsumidorComandosOperacionesPulsar:
-    """Consume comandos de la Saga dirigidos a OperacionesBC (asignar o liberar proveedor)."""
+class ConsumidorComandosWalletPulsar:
+    """Consume los comandos de la Saga dirigidos a WalletBC y responde con su resultado.
+
+    Confirma (*ack*) el mensaje en los dos desenlaces —acreditación hecha y
+    acreditación definitivamente fallida— porque en ambos el procesador ya agotó
+    su política de reintentos y reentregar el comando no cambiaría el resultado:
+    el fallo continúa en el orquestador, que abre la disputa.
+    """
 
     def __init__(
         self,
@@ -15,11 +29,13 @@ class ConsumidorComandosOperacionesPulsar:
         topico_comandos: str,
         topico_eventos: str,
         suscripcion: str,
+        procesador,
     ) -> None:
         self._url = url
         self._topico_comandos = topico_comandos
         self._topico_eventos = topico_eventos
         self._suscripcion = suscripcion
+        self._procesador = procesador
         self._detener = threading.Event()
         self._hilo: threading.Thread | None = None
         self._cliente: Any = None
@@ -43,12 +59,11 @@ class ConsumidorComandosOperacionesPulsar:
             max_pending_messages=1000,
         )
         self._hilo = threading.Thread(
-            target=self._bucle_consumo, daemon=True, name="operaciones-comandos-saga"
+            target=self._bucle_consumo, daemon=True, name="wallet-comandos-saga"
         )
         self._hilo.start()
         logger.info(
-            "Consumidor de comandos de saga en OperacionesBC iniciado en %s",
-            self._topico_comandos,
+            "Consumidor de comandos de saga en WalletBC iniciado en %s", self._topico_comandos
         )
 
     def _bucle_consumo(self) -> None:
@@ -73,7 +88,7 @@ class ConsumidorComandosOperacionesPulsar:
                 self._procesar_comando(tipo_comando, saga_id, payload)
                 self._consumidor.acknowledge(msg)
             except Exception:
-                logger.exception("Error procesando comando de saga en OperacionesBC")
+                logger.exception("Error procesando comando de saga en WalletBC")
                 try:
                     self._consumidor.acknowledge(msg)
                 except Exception:
@@ -82,103 +97,50 @@ class ConsumidorComandosOperacionesPulsar:
     def _procesar_comando(
         self, tipo_comando: str | None, saga_id: str | None, payload: dict[str, Any]
     ) -> None:
-        if not tipo_comando or not saga_id:
+        if not tipo_comando or not saga_id or tipo_comando not in COMANDO_ACREDITAR:
             return
 
         trabajo_id = payload.get("trabajo_id", "")
-        simular_fallo = payload.get("simular_fallo", False)
+        proveedor_id = str(payload.get("proveedor_id", ""))
 
-        if tipo_comando == "AsignarProveedorTrabajoV1":
-            if simular_fallo:
-                logger.warning(
-                    "Simulando rechazo de asignación de proveedor para saga=%s trabajo=%s",
-                    saga_id,
-                    trabajo_id,
-                )
-                self._emitir_evento(
-                    tipo_evento="AsignacionProveedorRechazadaV1",
-                    saga_id=saga_id,
-                    payload={
-                        "trabajo_id": trabajo_id,
-                        "motivo": "Sin proveedores con cobertura en la zona (simulación de fallo)",
-                    },
-                    partition_key=trabajo_id,
-                )
-            else:
-                proveedor_id = "prov-hda-expert-01"
-                logger.info(
-                    "Proveedor %s asignado para saga=%s trabajo=%s",
-                    proveedor_id,
-                    saga_id,
-                    trabajo_id,
-                )
-                self._emitir_evento(
-                    tipo_evento="ProveedorTrabajoAsignadoV1",
-                    saga_id=saga_id,
-                    payload={
-                        "trabajo_id": trabajo_id,
-                        "proveedor_id": proveedor_id,
-                        "partner_id": payload.get("partner_id"),
-                        "estado": "ASIGNADO",
-                    },
-                    partition_key=trabajo_id,
-                )
-                self._reportar_ejecucion(
-                    saga_id=saga_id,
-                    trabajo_id=trabajo_id,
-                    proveedor_id=proveedor_id,
-                    fallo=bool(payload.get("simular_fallo_ejecucion", False)),
-                )
-
-        elif tipo_comando == "LiberarAsignacionProveedorV1":
-            logger.info("Compensación: Liberar asignación para saga=%s trabajo=%s", saga_id, trabajo_id)
-            self._emitir_evento(
-                tipo_evento="AsignacionProveedorLiberadaV1",
-                saga_id=saga_id,
-                payload={
-                    "trabajo_id": trabajo_id,
-                    "liberado": True,
-                    "motivo": payload.get("motivo", "Compensación de Saga"),
-                },
-                partition_key=trabajo_id,
-            )
-
-    def _reportar_ejecucion(
-        self, saga_id: str, trabajo_id: str, proveedor_id: str, fallo: bool
-    ) -> None:
-        """Reporta al orquestador cómo terminó el trabajo en campo.
-
-        En la POC el trabajo físico se simula: el proveedor asignado lo ejecuta de
-        inmediato. En producción este evento lo dispararía la confirmación del
-        proveedor (evidencias, cierre del sub-trabajo), no la asignación.
-        """
-
-        if fallo:
-            logger.warning(
-                "Simulando ejecución fallida para saga=%s trabajo=%s", saga_id, trabajo_id
-            )
-            self._emitir_evento(
-                tipo_evento="EjecucionTrabajoFallidaV1",
-                saga_id=saga_id,
-                payload={
-                    "trabajo_id": trabajo_id,
-                    "proveedor_id": proveedor_id,
-                    "motivo": "El proveedor no pudo ejecutar el trabajo en sitio (simulación de fallo)",
-                },
-                partition_key=trabajo_id,
-            )
-            return
-
-        self._emitir_evento(
-            tipo_evento="EjecucionTrabajoCompletadaV1",
+        resultado = self._procesador.acreditar_proveedor(
             saga_id=saga_id,
-            payload={
-                "trabajo_id": trabajo_id,
-                "proveedor_id": proveedor_id,
-                "estado": "EJECUTADO",
-            },
-            partition_key=trabajo_id,
+            trabajo_id=trabajo_id,
+            proveedor_id=proveedor_id,
+            monto=Decimal(str(payload["monto"])),
+            moneda=str(payload["moneda"]),
+            simular_fallo=bool(payload.get("simular_fallo", False)),
         )
+
+        if resultado.exitoso:
+            self._emitir_evento(
+                tipo_evento=EVENTO_ACREDITADA,
+                saga_id=saga_id,
+                payload={
+                    "trabajo_id": trabajo_id,
+                    "proveedor_id": resultado.proveedor_id,
+                    "monto": str(payload["monto"]),
+                    "moneda": resultado.moneda or str(payload["moneda"]),
+                    "saldo_resultante": str(resultado.saldo_resultante),
+                    "intentos": resultado.intentos,
+                },
+                partition_key=trabajo_id,
+            )
+        else:
+            self._emitir_evento(
+                tipo_evento=EVENTO_FALLIDA,
+                saga_id=saga_id,
+                payload={
+                    "trabajo_id": trabajo_id,
+                    "proveedor_id": resultado.proveedor_id,
+                    "monto": str(payload["monto"]),
+                    "moneda": str(payload["moneda"]),
+                    "motivo": resultado.motivo or "No fue posible acreditar al proveedor",
+                    "intentos": resultado.intentos,
+                    "requiere_revision_manual": True,
+                },
+                partition_key=trabajo_id,
+            )
 
     def _emitir_evento(
         self,
@@ -200,10 +162,7 @@ class ConsumidorComandosOperacionesPulsar:
             partition_key=partition_key,
         )
         logger.info(
-            "Evento %s emitido hacia %s para saga=%s",
-            tipo_evento,
-            self._topico_eventos,
-            saga_id,
+            "Evento %s emitido hacia %s para saga=%s", tipo_evento, self._topico_eventos, saga_id
         )
 
     def detener(self) -> None:

@@ -36,7 +36,7 @@ bff-service/
 | `GET /trabajos/{trabajo_id}/estado` | Estado del trabajo agregado con el de su saga. | `gestion-trabajos-service GET /trabajos/{id}` + `GET /sagas` |
 | `GET /sagas/{saga_id}` | Línea de tiempo completa del Saga Log de una transacción. | `gestion-trabajos-service GET /sagas/{id}` |
 | `GET /sagas` | Últimas transacciones distribuidas (para explorar en la demo). | `gestion-trabajos-service GET /sagas` |
-| `POST /proveedores/{id}/wallet/retiros` | Solicita un retiro (débito) del saldo del proveedor. | `wallet-service POST /billeteras/{id}/debitar` |
+| `POST /proveedores/{id}/wallet/retiros` | Solicita un retiro (débito) del saldo del proveedor. | `wallet-service POST /proveedores/{id}/wallet/retiros` |
 
 **Nota / desviación consciente del contrato original de arquitectura:** el documento de
 Entrega 5 proponía `POST /trabajos/{id}/completar`, asumiendo un trabajo ya existente. En la
@@ -45,9 +45,19 @@ de la saga. Por eso el BFF expone `POST /trabajos/completar-servicio` (sin id) y
 `trabajo_id` generado en la respuesta — ajuste explícitamente permitido por ese mismo
 documento ("ajustar rutas... a las capacidades reales que ya existan en cada servicio").
 
-Para forzar una compensación en la demo, `POST /trabajos/completar-servicio` acepta
-`simular_fallo_en_paso: "PAGO"` o `"OPERACIONES"` en el body — se reenvía tal cual al
-orquestador, que ya soporta ese modo de prueba.
+El retiro se pide **por proveedor**: WalletBC resuelve cuál es su billetera. El BFF ya no
+asume que el `proveedor_id` sea el id de la billetera, que es un detalle contable interno
+de WalletBC.
+
+Para forzar un desenlace concreto en la demo, `POST /trabajos/completar-servicio` acepta
+`simular_fallo_en_paso` en el body y lo reenvía tal cual al orquestador:
+
+| Valor | Qué demuestra |
+| --- | --- |
+| `PAGO` | Compensación desde el paso 2: se cancela el trabajo. |
+| `OPERACIONES` | Compensación desde el paso 3: se revierte el pago y se cancela el trabajo. |
+| `EJECUCION` | Compensación desde el paso 4: se libera la asignación, se revierte el pago y se cancela. |
+| `WALLET` | La acreditación agota sus reintentos y el trabajo queda `EN_DISPUTA`, sin revertir nada. |
 
 ## Ejecutar localmente
 

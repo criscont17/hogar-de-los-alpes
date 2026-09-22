@@ -27,43 +27,41 @@ class SqlAlchemyBilleteraRepository(BilleteraRepository):
         self._session = session
 
     def guardar(self, billetera: Billetera) -> None:
-        try:
-            model = self._session.get(BilleteraModel, billetera.id.valor)
-            if model is None:
-                model = BilleteraModel(
-                    id=billetera.id.valor,
-                    proveedor_id=billetera.proveedor_id,
-                    saldo_monto=billetera.saldo.monto,
-                    saldo_moneda=billetera.saldo.moneda,
-                    estado=billetera.estado.value,
-                    fecha_creacion=billetera.fecha_creacion,
-                    movimientos=[],
-                )
-                self._session.add(model)
-            else:
-                model.saldo_monto = billetera.saldo.monto
-                model.saldo_moneda = billetera.saldo.moneda
-                model.estado = billetera.estado.value
+        """Deja la escritura lista en la sesión; confirmarla es de la unidad de trabajo."""
 
-            ids_persistidos = {movimiento.id for movimiento in model.movimientos}
-            for movimiento in billetera.movimientos:
-                if movimiento.id.valor not in ids_persistidos:
-                    model.movimientos.append(
-                        MovimientoModel(
-                            id=movimiento.id.valor,
-                            billetera_id=billetera.id.valor,
-                            tipo=movimiento.tipo.value,
-                            motivo=movimiento.motivo.value,
-                            monto=movimiento.monto.monto,
-                            saldo_resultante=movimiento.saldo_resultante.monto,
-                            referencia_externa=movimiento.referencia_externa,
-                            fecha=movimiento.fecha,
-                        )
+        model = self._session.get(BilleteraModel, billetera.id.valor)
+        if model is None:
+            model = BilleteraModel(
+                id=billetera.id.valor,
+                proveedor_id=billetera.proveedor_id,
+                saldo_monto=billetera.saldo.monto,
+                saldo_moneda=billetera.saldo.moneda,
+                estado=billetera.estado.value,
+                fecha_creacion=billetera.fecha_creacion,
+                movimientos=[],
+            )
+            self._session.add(model)
+        else:
+            model.saldo_monto = billetera.saldo.monto
+            model.saldo_moneda = billetera.saldo.moneda
+            model.estado = billetera.estado.value
+
+        ids_persistidos = {movimiento.id for movimiento in model.movimientos}
+        for movimiento in billetera.movimientos:
+            if movimiento.id.valor not in ids_persistidos:
+                model.movimientos.append(
+                    MovimientoModel(
+                        id=movimiento.id.valor,
+                        billetera_id=billetera.id.valor,
+                        tipo=movimiento.tipo.value,
+                        motivo=movimiento.motivo.value,
+                        monto=movimiento.monto.monto,
+                        saldo_resultante=movimiento.saldo_resultante.monto,
+                        referencia_externa=movimiento.referencia_externa,
+                        fecha=movimiento.fecha,
                     )
-            self._session.commit()
-        except Exception:
-            self._session.rollback()
-            raise
+                )
+        self._session.flush()
 
     def obtener_por_id(self, id: BilleteraId) -> Billetera | None:
         statement = (
@@ -82,15 +80,11 @@ class SqlAlchemyBilleteraRepository(BilleteraRepository):
         return self._a_dominio(self._session.scalar(statement))
 
     def eliminar(self, billetera: Billetera) -> None:
-        try:
-            model = self._session.get(BilleteraModel, billetera.id.valor)
-            if model is not None:
-                # Los movimientos se van con ella por el cascade delete-orphan.
-                self._session.delete(model)
-                self._session.commit()
-        except Exception:
-            self._session.rollback()
-            raise
+        model = self._session.get(BilleteraModel, billetera.id.valor)
+        if model is not None:
+            # Los movimientos se van con ella por el cascade delete-orphan.
+            self._session.delete(model)
+            self._session.flush()
 
     def listar(
         self,

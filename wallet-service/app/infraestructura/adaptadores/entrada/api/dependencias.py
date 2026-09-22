@@ -1,4 +1,10 @@
-from functools import lru_cache
+"""Cableado de la API REST sobre la raíz de composición del servicio.
+
+Los adaptadores compartidos (bus de eventos y broker) se piden al contenedor, que
+es el mismo que usa el consumidor de comandos de saga: así un comando produce los
+mismos efectos llegue por HTTP o por Pulsar. Lo que sí es propio de cada petición
+es la transacción, por eso `obtener_uow` crea una unidad de trabajo nueva cada vez.
+"""
 
 from fastapi import Depends
 from sqlalchemy.orm import Session
@@ -10,12 +16,9 @@ from app.aplicacion.comandos import (
     DebitarSaldoHandler,
     EliminarBilleteraHandler,
     ProcesarTrabajoLiquidadoHandler,
+    RetirarSaldoProveedorHandler,
 )
-from app.aplicacion.manejadores import (
-    AuditarEventoDeDominioHandler,
-    PublicarEventoDeIntegracionHandler,
-)
-from app.aplicacion.puertos import DomainEventDispatcher, MessageBroker
+from app.aplicacion.puertos import DomainEventDispatcher, MessageBroker, UnidadDeTrabajo
 from app.aplicacion.queries import (
     ListarBilleterasHandler,
     ListarMovimientosHandler,
@@ -23,75 +26,80 @@ from app.aplicacion.queries import (
     ObtenerMovimientoHandler,
     ObtenerSaldoHandler,
 )
-from app.infraestructura.adaptadores.salida.eventos import InMemoryDomainEventDispatcher
-from app.infraestructura.adaptadores.salida.mensajeria import LoggingMessageBroker
+from app.infraestructura import contenedor
 from app.infraestructura.adaptadores.salida.persistencia.db import obtener_sesion
 from app.infraestructura.adaptadores.salida.persistencia.sqlalchemy_billetera_repository import (
     SqlAlchemyBilleteraRepository,
 )
-from app.seedwork.dominio import DomainEvent
 
 
-@lru_cache(maxsize=1)
 def obtener_broker() -> MessageBroker:
-    """Adaptador de mensajería en uso. Cambiar aquí para migrar a Rabbit o SQS."""
-
-    return LoggingMessageBroker()
+    return contenedor.obtener_broker()
 
 
-@lru_cache(maxsize=1)
 def obtener_dispatcher() -> DomainEventDispatcher:
-    """Construye el bus con sus suscriptores ya registrados.
+    return contenedor.obtener_dispatcher()
 
-    Al estar cacheado, el registro ocurre una sola vez por proceso sin necesidad
-    de banderas externas, y cada test puede pedir un bus limpio con `cache_clear()`.
-    """
 
-    dispatcher = InMemoryDomainEventDispatcher()
-    dispatcher.suscribir(DomainEvent, AuditarEventoDeDominioHandler())
-    dispatcher.suscribir(
-        DomainEvent, PublicarEventoDeIntegracionHandler(obtener_broker())
-    )
-    return dispatcher
+def obtener_uow() -> UnidadDeTrabajo:
+    """Una unidad de trabajo por petición: abre y cierra su propia sesión."""
+
+    return contenedor.unidad_de_trabajo()
 
 
 def obtener_repo(session: Session = Depends(obtener_sesion)) -> SqlAlchemyBilleteraRepository:
+    """Repositorio de solo lectura para las queries, fuera de toda transacción de escritura."""
+
     return SqlAlchemyBilleteraRepository(session)
 
 
 def obtener_crear_handler(
-    repo=Depends(obtener_repo),
+    uow: UnidadDeTrabajo = Depends(obtener_uow),
     dispatcher: DomainEventDispatcher = Depends(obtener_dispatcher),
 ) -> CrearBilleteraHandler:
-    return CrearBilleteraHandler(repo, dispatcher)
+    return CrearBilleteraHandler(uow, dispatcher)
 
 
 def obtener_acreditar_handler(
-    repo=Depends(obtener_repo),
+    uow: UnidadDeTrabajo = Depends(obtener_uow),
     dispatcher: DomainEventDispatcher = Depends(obtener_dispatcher),
 ) -> AcreditarSaldoHandler:
-    return AcreditarSaldoHandler(repo, dispatcher)
+    return AcreditarSaldoHandler(uow, dispatcher)
 
 
 def obtener_debitar_handler(
-    repo=Depends(obtener_repo),
+    uow: UnidadDeTrabajo = Depends(obtener_uow),
     dispatcher: DomainEventDispatcher = Depends(obtener_dispatcher),
 ) -> DebitarSaldoHandler:
-    return DebitarSaldoHandler(repo, dispatcher)
+    return DebitarSaldoHandler(uow, dispatcher)
+
+
+def obtener_retiro_proveedor_handler(
+    uow: UnidadDeTrabajo = Depends(obtener_uow),
+    dispatcher: DomainEventDispatcher = Depends(obtener_dispatcher),
+) -> RetirarSaldoProveedorHandler:
+    return RetirarSaldoProveedorHandler(uow, dispatcher)
 
 
 def obtener_cambiar_estado_handler(
-    repo=Depends(obtener_repo),
+    uow: UnidadDeTrabajo = Depends(obtener_uow),
     dispatcher: DomainEventDispatcher = Depends(obtener_dispatcher),
 ) -> CambiarEstadoBilleteraHandler:
-    return CambiarEstadoBilleteraHandler(repo, dispatcher)
+    return CambiarEstadoBilleteraHandler(uow, dispatcher)
 
 
 def obtener_eliminar_handler(
-    repo=Depends(obtener_repo),
+    uow: UnidadDeTrabajo = Depends(obtener_uow),
     dispatcher: DomainEventDispatcher = Depends(obtener_dispatcher),
 ) -> EliminarBilleteraHandler:
-    return EliminarBilleteraHandler(repo, dispatcher)
+    return EliminarBilleteraHandler(uow, dispatcher)
+
+
+def obtener_trabajo_liquidado_handler(
+    uow: UnidadDeTrabajo = Depends(obtener_uow),
+    dispatcher: DomainEventDispatcher = Depends(obtener_dispatcher),
+) -> ProcesarTrabajoLiquidadoHandler:
+    return ProcesarTrabajoLiquidadoHandler(uow, dispatcher)
 
 
 def obtener_saldo_handler(repo=Depends(obtener_repo)) -> ObtenerSaldoHandler:
@@ -114,10 +122,3 @@ def obtener_movimientos_handler(repo=Depends(obtener_repo)) -> ListarMovimientos
 
 def obtener_movimiento_handler(repo=Depends(obtener_repo)) -> ObtenerMovimientoHandler:
     return ObtenerMovimientoHandler(repo)
-
-
-def obtener_trabajo_liquidado_handler(
-    repo=Depends(obtener_repo),
-    acreditar=Depends(obtener_acreditar_handler),
-) -> ProcesarTrabajoLiquidadoHandler:
-    return ProcesarTrabajoLiquidadoHandler(repo, acreditar)

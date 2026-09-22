@@ -24,6 +24,7 @@ from app.aplicacion.eventos_integracion import (
     TrabajoCerradoV1,
     TrabajoCreadoV1,
     TrabajoCreadoV2,
+    TrabajoEnDisputaV1,
     TrabajoRediagnosticadoV1,
 )
 from app.dominio.trabajo.eventos import (
@@ -39,6 +40,7 @@ from app.dominio.trabajo.eventos import (
     TrabajoCancelado,
     TrabajoCerrado,
     TrabajoCreado,
+    TrabajoEnDisputa,
     TrabajoRediagnosticado,
 )
 from app.seedwork.aplicacion import IntegrationEvent
@@ -190,6 +192,16 @@ def _a_trabajo_cerrado_v1(evento: TrabajoCerrado) -> TrabajoCerradoV1:
     )
 
 
+def _a_trabajo_en_disputa_v1(evento: TrabajoEnDisputa) -> TrabajoEnDisputaV1:
+    return TrabajoEnDisputaV1(
+        **_base(evento),
+        motivo=evento.motivo,
+        estado_anterior=evento.estado_anterior,
+        liquidaciones_pendientes=_liquidaciones(evento.liquidaciones_pendientes),
+        moneda=evento.moneda,
+    )
+
+
 def _a_creacion_de_trabajo_rechazada_v1(
     evento: CreacionDeTrabajoRechazada,
 ) -> CreacionDeTrabajoRechazadaV1:
@@ -216,4 +228,5 @@ TRADUCTORES: dict[type[DomainEvent], tuple[Traductor, ...]] = {
     TrabajoRediagnosticado: (_a_trabajo_rediagnosticado_v1,),
     TrabajoCancelado: (_a_trabajo_cancelado_v1,),
     TrabajoCerrado: (_a_trabajo_cerrado_v1,),
+    TrabajoEnDisputa: (_a_trabajo_en_disputa_v1,),
 }

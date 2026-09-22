@@ -11,6 +11,7 @@ from app.seedwork.dominio import AggregateRoot
 from .dinero import Dinero
 from .enums import EstadoBilletera, MotivoMovimiento, TipoMovimiento
 from .eventos import (
+    AcreditacionRechazada,
     BilleteraEliminada,
     DebitoRechazado,
     EstadoBilleteraCambiado,
@@ -84,6 +85,45 @@ class Billetera(AggregateRoot[BilleteraId]):
                 fecha=fecha,
                 referencia_externa=referencia_externa,
             )
+        )
+
+    def acreditar_liquidacion(
+        self,
+        monto: Dinero,
+        referencia_externa: str,
+    ) -> None:
+        """Acredita la liquidación de un trabajo ya ejecutado.
+
+        A diferencia de `acreditar`, exige la billetera activa: una billetera
+        bloqueada no puede recibir el dinero de una liquidación mientras Operaciones
+        no resuelva por qué lo está. El rechazo no toca el saldo, pero sí se anuncia
+        para que quien coordina la transacción decida entre reintentar y abrir una
+        disputa.
+        """
+
+        if self._estado is EstadoBilletera.SUSPENDIDA:
+            self.add_domain_event(
+                AcreditacionRechazada(
+                    billetera_id=str(self.id),
+                    proveedor_id=self.proveedor_id,
+                    monto_solicitado=monto.monto,
+                    moneda=monto.moneda,
+                    motivo_rechazo="La billetera está suspendida",
+                    fecha=datetime.now(timezone.utc),
+                    referencia_externa=referencia_externa,
+                )
+            )
+            raise BilleteraSuspendidaError(
+                "No se puede acreditar una liquidación en una billetera suspendida"
+            )
+        self.acreditar(monto, MotivoMovimiento.PAGO_DE_TRABAJO, referencia_externa)
+
+    def tiene_movimiento_con_referencia(self, referencia_externa: str) -> bool:
+        """Permite que un mismo hecho reentregado no se acredite dos veces."""
+
+        return any(
+            movimiento.referencia_externa == referencia_externa
+            for movimiento in self._movimientos
         )
 
     def debitar(

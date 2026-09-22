@@ -1,8 +1,14 @@
 # WalletBC — Billetera de proveedores
 
 Microservicio backend de **Hogar de los Alpes** para crear billeteras, acreditar y debitar
-saldo, consultar movimientos y reaccionar al evento externo simulado `TrabajoLiquidado`.
-Esta implementación es independiente de los demás bounded contexts.
+saldo, consultar movimientos y atender los retiros del proveedor.
+
+Es además el **último participante de la Saga de Activación de Servicio**: consume por
+Apache Pulsar el comando `AcreditarProveedorV1` que emite el orquestador en
+GestionDeTrabajosBC y responde con `WalletAcreditadaV1` o, si la acreditación no prospera
+ni después de reintentar, con `AcreditacionFallidaV1`. Ese segundo evento no dispara una
+compensación: el trabajo ya se ejecutó, así que pasa a `EN_DISPUTA` para revisión manual
+(ver [Participación en la Saga](#participación-en-la-saga)).
 
 ## Arquitectura
 
@@ -14,19 +20,27 @@ wallet-service/
 ├── README.md
 ├── requirements.txt
 ├── .env.example
+├── collections/                  # Colección Postman de WalletBC
+├── tests/                        # Unidad de Trabajo y paso de acreditación de la saga
 └── app/
     ├── seedwork/
     │   ├── dominio/              # Entity, ValueObject, AggregateRoot, DomainEvent
-    │   └── aplicacion/           # DomainEventHandler, IntegrationEvent
+    │   ├── aplicacion/           # DomainEventHandler, IntegrationEvent
+    │   └── infraestructura/      # PoliticaDeReintentos (backoff exponencial)
     ├── dominio/
     ├── aplicacion/
     │   ├── comandos/  queries/  dtos/
-    │   ├── puertos/              # DomainEventDispatcher, MessageBroker
+    │   ├── puertos/              # UnidadDeTrabajo, DomainEventDispatcher, MessageBroker
     │   ├── manejadores/          # suscriptores del bus + traductores
     │   └── eventos_integracion/  # contrato público versionado
     └── infraestructura/
+        ├── configuracion.py
+        ├── contenedor.py         # raíz de composición compartida por REST y Pulsar
+        ├── semilla.py            # billeteras de demostración creadas al arrancar
         └── adaptadores/
-            ├── entrada/api/      # main.py: crear_app() y la instancia ASGI
+            ├── entrada/
+            │   ├── api/          # main.py: crear_app() y la instancia ASGI
+            │   └── mensajeria/   # consumidor de comandos de saga en Pulsar
             └── salida/           # persistencia/  eventos/  mensajeria/
 ```
 
@@ -34,16 +48,87 @@ La implementación sigue DDD, arquitectura hexagonal y CQS:
 
 - `app/seedwork/`: bloques de construcción genéricos, sin conocimiento del negocio. No
   pertenece a ninguna capa porque las tres lo consumen; `seedwork/dominio/` aporta
-  `Entity`, `ValueObject`, `AggregateRoot`, `DomainEvent` y `DomainError`, y
-  `seedwork/aplicacion/` las bases `DomainEventHandler` e `IntegrationEvent`.
+  `Entity`, `ValueObject`, `AggregateRoot`, `DomainEvent` y `DomainError`,
+  `seedwork/aplicacion/` las bases `DomainEventHandler` e `IntegrationEvent`, y
+  `seedwork/infraestructura/` la `PoliticaDeReintentos`.
 - `app/dominio/`: Python puro. Contiene `Billetera` como agregado raíz, `Movimiento` como
   entidad, objetos valor, fábrica, errores, eventos y el puerto del repositorio.
 - `app/aplicacion/`: comandos y queries con un handler dedicado, DTOs `dataclass`, los
-  puertos `DomainEventDispatcher` y `MessageBroker`, los handlers suscritos al bus y el
-  contrato de eventos de integración. No importa FastAPI, Pydantic ni SQLAlchemy.
+  puertos `UnidadDeTrabajo`, `DomainEventDispatcher` y `MessageBroker`, los handlers
+  suscritos al bus y el contrato de eventos de integración. No importa FastAPI, Pydantic
+  ni SQLAlchemy.
+- `app/infraestructura/contenedor.py`: raíz de composición. Decide qué adaptador hay
+  detrás de cada puerto y la comparten las dos entradas del servicio, de modo que una
+  acreditación produce los mismos efectos llegue por REST o por Pulsar.
 - `app/infraestructura/adaptadores/entrada/api/`: rutas FastAPI, schemas Pydantic y mappers.
-- `app/infraestructura/adaptadores/salida/`: repositorio SQLAlchemy/PostgreSQL, bus interno
-  de eventos y adaptadores de mensajería.
+- `app/infraestructura/adaptadores/entrada/mensajeria/`: consumidor de los comandos de la
+  saga.
+- `app/infraestructura/adaptadores/salida/`: repositorio SQLAlchemy/PostgreSQL, unidad de
+  trabajo, bus interno de eventos y adaptadores de mensajería.
+
+### Unidad de Trabajo (Unit of Work)
+
+La transacción la gobierna el caso de uso, no el repositorio:
+
+- el handler abre el bloque `with self._uow as uow:`, opera sobre `uow.billeteras` y
+  confirma al final con `uow.confirmar()`;
+- `SqlAlchemyBilleteraRepository` solo hace `flush()`: ya no confirma ni revierte;
+- si algo falla antes de confirmar, `SqlAlchemyUnidadDeTrabajo` revierte al salir del
+  bloque, de modo que **nunca queda un saldo sin su movimiento ni un movimiento sin su
+  saldo** — que es la razón de aplicar el patrón a una billetera;
+- los eventos de dominio se despachan **después** de confirmar, cuando el hecho ya es
+  definitivo;
+- se crea una unidad de trabajo por petición HTTP y otra por mensaje de Pulsar, cada una
+  con su propia sesión. Las consultas siguen usando un repositorio de solo lectura.
+
+## Participación en la Saga
+
+| Tópico | Dirección | Contenido |
+|---|---|---|
+| `persistent://public/default/comandos-wallet` | Consume (suscripción `wallet-saga-comandos`, `Shared`) | `AcreditarProveedorV1` |
+| `persistent://public/default/eventos-wallet` | Publica | `WalletAcreditadaV1`, `AcreditacionFallidaV1` |
+
+> El documento de arquitectura nombra el comando `AcreditarProveedor` y los eventos
+> `WalletAcreditada` / `AcreditacionFallida`. En el bus viajan con sufijo de versión, como
+> el resto de contratos del sistema; el consumidor acepta ambas formas.
+
+Flujo de una acreditación:
+
+```
+AcreditarProveedorV1 (Pulsar)
+  └─ ProcesadorComandosSagaWallet.acreditar_proveedor
+       └─ PoliticaDeReintentos (backoff exponencial)
+            └─ with unidad_de_trabajo() as uow:      ← transacción local
+                 ├─ resolver la billetera del proveedor
+                 ├─ ¿ya hay un movimiento con esta saga? → no acreditar dos veces
+                 ├─ Billetera.acreditar_liquidacion(...)  ← exige billetera activa
+                 └─ uow.confirmar()
+       ├─ éxito   → WalletAcreditadaV1
+       └─ fallo   → AcreditacionFallidaV1 (requiere_revision_manual)
+```
+
+Tres decisiones del paso:
+
+- **Idempotencia.** Cada acreditación se registra con la referencia
+  `saga:{saga_id}:acreditacion`. Si Pulsar reentrega el comando, el movimiento ya existe y
+  el saldo no se toca; se responde igual con `WalletAcreditadaV1`.
+- **Reintentos con backoff.** Un fallo que puede resolverse solo —billetera bloqueada que
+  se reactiva, caída puntual de la base o de la pasarela interna— se reintenta hasta
+  `ACREDITACION_INTENTOS` veces, esperando `0,5 s`, `1 s`, `2 s`… Un fallo que no depende
+  del tiempo (el proveedor no tiene billetera, la moneda no corresponde, el monto es
+  inválido) no se reintenta: solo retrasaría la disputa.
+- **Política `EN_DISPUTA`.** Agotados los reintentos se emite `AcreditacionFallidaV1` y
+  **el trabajo no se revierte**: el servicio ya se prestó. El orquestador marca el trabajo
+  `EN_DISPUTA` para que Operaciones lo resuelva a mano.
+
+El consumidor confirma (*ack*) el mensaje en los dos desenlaces, porque en ambos el
+procesador ya agotó su política de reintentos y reentregar el comando no cambiaría el
+resultado.
+
+`Billetera.acreditar_liquidacion` es el método que usa este paso (y el evento externo
+`TrabajoLiquidado`): a diferencia de `acreditar`, **exige la billetera activa**. Una
+billetera suspendida rechaza la liquidación con `AcreditacionRechazada` sin mover el saldo.
+El `POST /billeteras/{id}/acreditar` administrativo conserva su comportamiento anterior.
 
 ## Eventos de dominio y de integración
 
@@ -82,8 +167,10 @@ La suscripción se hace sobre `DomainEvent`, de modo que un evento nuevo queda c
 registrarlo a mano. Si aun así llega un evento sin suscriptores, o sin traductor de
 integración, el bus lo advierte en el log en lugar de ignorarlo en silencio.
 
-`DebitoRechazado` también se despacha cuando el agregado rechaza una operación; no requiere
-guardar porque el saldo y los movimientos permanecen intactos.
+`DebitoRechazado` y `AcreditacionRechazada` también se despachan cuando el agregado rechaza
+una operación; no requieren guardar porque el saldo y los movimientos permanecen intactos.
+En el caso de la acreditación, el rechazo se anuncia una sola vez: el definitivo, cuando ya
+se agotaron los reintentos.
 
 ## Requisitos y ejecución
 
@@ -106,6 +193,33 @@ La conexión se toma de `DATABASE_URL`. Copie la plantilla y ajuste sus credenci
 
 ```bash
 cp .env.example .env
+```
+
+| Variable | Por defecto | Uso |
+|---|---|---|
+| `DATABASE_URL` | `postgresql+psycopg://wallet:wallet@localhost:5432/wallet_db` | Conexión a la base |
+| `PULSAR_URL` | `pulsar://localhost:6650` | Broker de Pulsar |
+| `PULSAR_CONSUMIR_COMANDOS_WALLET` | `false` | Arranca el consumidor de comandos de la saga |
+| `PULSAR_TOPICO_COMANDOS_WALLET` / `PULSAR_TOPICO_EVENTOS_WALLET` | `comandos-wallet` / `eventos-wallet` | Tópicos de la saga |
+| `PULSAR_SUSCRIPCION_COMANDOS_WALLET` | `wallet-saga-comandos` | Suscripción del consumidor |
+| `ACREDITACION_INTENTOS` | `3` | Intentos antes de declarar la disputa |
+| `ACREDITACION_ESPERA_INICIAL_SEGUNDOS` | `0.5` | Primera espera del backoff |
+| `ACREDITACION_FACTOR_BACKOFF` | `2.0` | Cuánto crece la espera en cada intento |
+| `SEMBRAR_BILLETERAS` | `true` | Crea al arrancar la billetera del proveedor de la demo |
+
+Sin Pulsar el servicio arranca igual: la API REST sigue atendiendo billeteras y retiros, y
+solo deja de llegar el paso de acreditación de la saga.
+
+### Pruebas automatizadas
+
+Cubren la Unidad de Trabajo (confirmación, reversión y atomicidad saldo/movimiento), el
+retiro por proveedor y el paso de acreditación de la saga (idempotencia, backoff,
+recuperación entre reintentos y fallos permanentes). Corren sobre SQLite, sin Pulsar:
+
+```bash
+DATABASE_URL="sqlite:///:memory:" python3 -m unittest discover -s tests
+# un solo caso
+DATABASE_URL="sqlite:///:memory:" python3 -m unittest tests.test_unidad_de_trabajo_y_saga -v
 ```
 
 `app/infraestructura/configuracion.py` carga ese `.env` al arrancar, resolviendo la ruta
@@ -181,7 +295,22 @@ migraciones versionadas.
 | `POST` | `/billeteras/{id}/debitar` | Registrar un débito |
 | `GET` | `/billeteras/{id}/movimientos` | Historial, con filtros de fecha y tipo |
 | `GET` | `/billeteras/{id}/movimientos/{movimiento_id}` | Un movimiento puntual |
+| `POST` | `/proveedores/{proveedor_id}/wallet/retiros` | Retiro solicitado por el proveedor |
 | `POST` | `/eventos-externos/trabajo-liquidado` | Evento externo simulado |
+
+`POST /proveedores/{proveedor_id}/wallet/retiros` identifica la billetera **por el
+proveedor**, no por el id contable de la billetera, que es un detalle interno de WalletBC.
+Es la ruta que consume el BFF y la que corresponde al comando de retiros del contrato de
+arquitectura:
+
+```bash
+curl -X POST http://localhost:8000/proveedores/prov-hda-expert-01/wallet/retiros \
+  -H 'Content-Type: application/json' \
+  -d '{"monto":"50000.00","referencia_externa":"retiro-1"}'
+```
+
+El `motivo` por omisión es `RetiroAProveedor`. Responde `404` si el proveedor no tiene
+billetera y `409` por fondos insuficientes.
 
 Use UUID diferentes para el proveedor y los trabajos. Primero cree una billetera:
 
