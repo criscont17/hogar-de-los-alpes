@@ -410,11 +410,16 @@ def main() -> None:
         )
     print()
     fila_metrica("Saldo de la billetera: inicio → fin", f"{saldo_inicial:,.2f} → {saldo_final:,.2f}")
-    fila_metrica(
-        "Movimiento del saldo vs. acreditado",
-        f"{movimiento_de_saldo:,.2f} vs {acreditado:,.2f}",
-        "iguales",
-    )
+    if args.solo_auditar:
+        # Las acreditaciones de estas sagas ocurrieron antes de abrir la auditoría,
+        # así que el delta del saldo no dice nada sobre ellas: no se evalúa.
+        fila_metrica("Movimiento del saldo", f"{movimiento_de_saldo:,.2f}", "no aplica al auditar")
+    else:
+        fila_metrica(
+            "Movimiento del saldo vs. acreditado",
+            f"{movimiento_de_saldo:,.2f} vs {acreditado:,.2f}",
+            "iguales",
+        )
 
     if con_problemas:
         titulo(f"Discrepancias encontradas ({len(con_problemas)} sagas)")
@@ -433,10 +438,11 @@ def main() -> None:
     titulo("Veredicto del escenario")
     veredicto("Discrepancia bruta estrictamente 0", descuadre_bruto == 0)
     veredicto("Sin dinero fantasma ni perdido en ninguna saga", not con_problemas)
-    veredicto(
-        "El saldo de la billetera se movió solo por estas acreditaciones",
-        movimiento_de_saldo == acreditado,
-    )
+    if not args.solo_auditar:
+        veredicto(
+            "El saldo de la billetera se movió solo por estas acreditaciones",
+            movimiento_de_saldo == acreditado,
+        )
     veredicto(
         "Ninguna saga terminó FALLIDA (compensación incompleta)",
         por_estado.get("FALLIDA", 0) == 0,

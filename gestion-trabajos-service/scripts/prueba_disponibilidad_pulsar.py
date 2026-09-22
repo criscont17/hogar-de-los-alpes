@@ -16,11 +16,14 @@ Hay dos formas de derribarlo y dan resultados deliberadamente distintos:
   decisión consciente para la POC, y su consecuencia es medible: los mensajes en
   tránsito se pierden y las sagas afectadas no se recuperan solas.
 
-Un segundo límite que el experimento deja a la vista: el consumidor de eventos de
-saga hace *ack* incluso cuando el manejo del evento lanza excepción
-(`consumidor_eventos_saga_pulsar.py:82-87`). Si el orquestador no logra publicar
-el comando siguiente porque el broker está caído, ese evento se confirma y se
-pierde: la saga queda detenida en ese paso aunque el broker vuelva.
+Hay un segundo límite que conviene tener presente al leer los resultados: el
+consumidor de eventos de saga hace *ack* incluso cuando el manejo del evento lanza
+excepción (`consumidor_eventos_saga_pulsar.py:82-87`). Si el orquestador recibiera
+un evento y no lograra publicar el comando siguiente, ese evento se confirmaría y
+se perdería. En la corrida del 2026-09-21 ese riesgo **no** se materializó en modo
+`pausa` (recuperación 100 %): con el broker congelado el consumidor no recibe nada,
+así que ningún manejador llega a correr. La ventana peligrosa exige un broker
+*parcialmente* disponible, que es más difícil de provocar y de observar.
 
 Uso (con el stack arriba, desde `gestion-trabajos-service/`):
 

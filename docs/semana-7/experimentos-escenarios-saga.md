@@ -176,13 +176,27 @@ respuestas es el radio de impacto real de la caída.
 
 1. **No hay Outbox.** Los eventos de dominio se publican después de confirmar la
    transacción; si el broker cae en esa ventana, el evento se pierde sin que nadie
-   lo reintente.
+   lo reintente. Es la causa de que el modo `caida` recupere tan poco.
 2. **El consumidor de eventos de saga confirma el mensaje aunque el manejo falle**
-   (`consumidor_eventos_saga_pulsar.py:82-87`). Si el orquestador no logra publicar
-   el comando siguiente porque el broker está caído, ese evento queda *ack*-eado y
-   la saga se detiene en ese paso aunque el broker vuelva. Cambiar ese `acknowledge`
-   por un `negative_acknowledge` ante fallas técnicas es la corrección mínima para
-   que el modo `pausa` recupere el 100 %.
+   (`consumidor_eventos_saga_pulsar.py:82-87`): un evento cuyo comando siguiente no
+   se pueda publicar queda *ack*-eado y la saga se detiene en ese paso. En la
+   corrida del 2026-09-21 este riesgo **no** se materializó —el modo `pausa`
+   recuperó el 100 %—, porque con el broker congelado el consumidor no recibe nada
+   y ningún manejador llega a correr. La ventana exige un broker *parcialmente*
+   disponible, lo que la vuelve difícil de reproducir y fácil de subestimar.
+
+### Resultados de referencia (portátil, 2026-09-21)
+
+Para saber si una corrida nueva se sale de lo esperado:
+
+| Modo | Retenidas | Recuperadas | Broker sano en | Recuperación de sagas |
+|---|---|---|---|---|
+| `pausa` | 9 de 12 | 9 (100 %) | 14,4 s | 2,0 s p50/máx |
+| `caida` | 17 de 20 | 2 (12 %) | 10,4 s | 12,2 s p50/máx |
+
+En ambos modos el Saga Log respondió `HTTP 200` durante toda la caída, mientras que
+iniciar una saga nueva dio timeout. Las 15 sagas no recuperadas del modo `caida`
+quedaron detenidas en `5:ACREDITAR_PROVEEDOR`.
 
 ### Tabla para el informe
 
