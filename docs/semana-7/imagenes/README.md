@@ -8,8 +8,9 @@ uno queda junto al PNG para poder regenerarlo.
 |---|---|
 | `cambios-antes-despues.png` | Resaltado de cambios frente al TO-BE de la Entrega 1 |
 | `mapa-contextos-to-be-refinado.png` | Mapa de contextos TO-BE refinado: implementado vs. planeado |
-| `saga-happy-path.png` | Vista dinámica: flujo exitoso de la saga, desde el cliente externo |
-| `saga-compensacion.png` | Vista dinámica: compensación en orden inverso |
+| `saga-happy-path.png` | Vista dinámica: flujo exitoso de la saga (5 pasos, 4 servicios), desde el cliente externo |
+| `saga-compensacion.png` | Vista dinámica: compensación en orden inverso (fallo en la ejecución) |
+| `saga-disputa.png` | Vista dinámica: fallo de acreditación que termina en `EN_DISPUTA`, sin compensar |
 | `topologia-despliegue.png` | Vista de despliegue: contenedores, bases y puertos |
 
 ## Regenerar
@@ -20,7 +21,7 @@ Requiere Node y un Chrome o Edge instalado (no hace falta Graphviz):
 # Desde docs/semana-7, con la ruta de su navegador
 echo '{"executablePath": "C:/Program Files/Google/Chrome/Application/chrome.exe", "args": ["--no-sandbox"]}' > imagenes/puppeteer.json
 
-for d in cambios-antes-despues mapa-contextos-to-be-refinado saga-happy-path saga-compensacion topologia-despliegue; do
+for d in cambios-antes-despues mapa-contextos-to-be-refinado saga-happy-path saga-compensacion saga-disputa topologia-despliegue; do
   PUPPETEER_SKIP_DOWNLOAD=true npx -y @mermaid-js/mermaid-cli@11 \
     -i "imagenes/$d.mmd" -o "imagenes/$d.png" -b white -s 2 -p imagenes/puppeteer.json
 done

@@ -52,11 +52,13 @@ demuestra el escenario de calidad de Interoperabilidad (#7). Consulte
 el gateway en `/api`. Traduce cada solicitud de negocio en llamadas hacia el orquestador de la
 saga y WalletBC; ningún cliente externo conoce Apache Pulsar ni la partición en microservicios.
 
-La transacción larga *Activación de Servicio* se implementó como **saga por orquestación**: el
-coordinador vive en GestionDeTrabajosBC (dueño del agregado `Trabajo`), persiste cada
-transición en un **Saga Log** (`saga_instancias` y `saga_pasos` en `trabajos_db`) y coordina a
-PagosBC y OperacionesBC con comandos y eventos por Pulsar, compensando en orden inverso ante
-un fallo. Consulte [`bff-service/README.md`](bff-service/README.md) y
+La transacción larga *Activación de Servicio* se implementó como **saga por orquestación de
+cinco pasos sobre cuatro servicios**: el coordinador vive en GestionDeTrabajosBC (dueño del
+agregado `Trabajo`), persiste cada transición en un **Saga Log** (`saga_instancias` y
+`saga_pasos` en `trabajos_db`) y coordina a PagosBC, OperacionesBC y WalletBC con comandos y
+eventos por Pulsar. Ante un fallo compensa en orden inverso, con una excepción deliberada: si
+falla la acreditación al proveedor —el último paso, cuando el trabajo ya se ejecutó— el
+trabajo pasa a `EnDisputa` en vez de revertir un servicio ya prestado. Consulte [`bff-service/README.md`](bff-service/README.md) y
 [`docs/semana-7/patron-sagas-y-saga-log.md`](docs/semana-7/patron-sagas-y-saga-log.md).
 
 ---
@@ -162,7 +164,8 @@ Postman o el script que se indica. El detalle de hipótesis, método y métricas
 | **#4** | Escalabilidad / Elasticidad | Absorber picos de demanda (hasta 4x siniestros) escalando horizontalmente | Suscripción `Shared` sobre `comandos-trabajo` en `gestion-trabajos-service/` | `python -m scripts.carga_escalabilidad --num 200`, con y sin la réplica del perfil `escalabilidad` |
 | **#7** | Interoperabilidad / Resiliencia (PSPs) | Que la caída de una pasarela de pago no arrastre a las demás | Un adaptador ACL y un circuit breaker por PSP en `pagos-service/` | Colección de [`pagos-service/collections/`](pagos-service/collections/README.md) |
 | **#9** | Interoperabilidad / Resiliencia (partners) | Traducir el formato de cada partner y aislar su caída, con recuperación automática | ACL, hilo y circuit breaker por partner en `operaciones-service/` | Carpetas **01 a 04** de [`operaciones-service/collections/`](operaciones-service/collections/README.md) |
-| **Sagas** | Consistencia eventual / Corrección transaccional | Que un fallo a mitad de la transacción no deje dinero retenido sin registro | Orquestador y Saga Log en `gestion-trabajos-service/app/aplicacion/sagas/` | `python -m scripts.probar_saga_orquestada --modo exito` y `--modo compensar-pago` / `--modo compensar-operaciones` |
+| **Sagas** | Consistencia eventual / Corrección transaccional | Que un fallo a mitad de la transacción no deje dinero retenido sin registro | Orquestador y Saga Log en `gestion-trabajos-service/app/aplicacion/sagas/`; los pasos y compensaciones, en PagosBC, OperacionesBC y WalletBC | `python -m scripts.probar_saga_orquestada --modo` con `exito`, `compensar-pago`, `compensar-operaciones`, `compensar-ejecucion` y `disputa-wallet`; auditoría masiva con `auditoria_consistencia_sagas.py` |
+| **Disponibilidad** | Tolerancia a fallos de infraestructura | Que una caída del bróker de Pulsar no pierda sagas en curso | Reintentos y reconexión de los consumidores en los cuatro servicios | `python -m scripts.prueba_disponibilidad_pulsar` |
 
 Los cinco se resumen, con su relación a cada refinamiento del mapa de contextos, en la tabla de
 trazabilidad de

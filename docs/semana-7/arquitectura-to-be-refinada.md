@@ -25,10 +25,11 @@ Artefactos relacionados:
 | 2 | Reglas y acuerdos de partners | En `SiniestrosBC` | En **`OperacionesBC`** | El escenario de Modificabilidad #3 define como artefacto el "adaptador de entrada (ACL) para el nuevo partner en OperacionesBC" y exige **0 % de cambios en el dominio del core**. Poner las reglas junto al motor de trabajos habría obligado a redesplegarlo con cada partner. |
 | 3 | Relación core ↔ OperacionesBC | Conformist, solo lectura de eventos | **Anti-Corruption Layer en ambos sentidos** | OperacionesBC no solo consume eventos: traduce el formato propio de cada partner y emite el comando canónico `CrearTrabajoV1`. Ningún formato ajeno entra al core y ningún modelo interno sale sin traducir. |
 | 4 | Entrada de clientes | Cada bounded context expone su API | **BFF en `/api` + gateway Nginx en el puerto 80** | Un cliente externo no debe conocer la partición en microservicios ni hablar con Pulsar. El BFF es el contrato público; los prefijos por servicio del gateway quedan para depuración. |
-| 5 | Transacción distribuida | No modelada | **Saga por orquestación + Saga Log** | La activación de un servicio compromete dinero retenido y capacidad operativa con un partner. La orquestación centraliza la máquina de estados y ejecuta las compensaciones en orden inverso de forma determinista. |
+| 5 | Transacción distribuida | No modelada | **Saga por orquestación de 5 pasos sobre 4 servicios + Saga Log** | La activación de un servicio compromete dinero retenido, capacidad operativa y la liquidación al proveedor. La orquestación centraliza la máquina de estados y compensa en orden inverso; el último paso es la excepción deliberada (ver fila 9). |
 | 6 | Consistencia dentro de cada servicio | Implícita en el repositorio | **Unidad de trabajo por caso de uso** | El caso de uso decide la transacción, no el adaptador de persistencia. En OperacionesBC eso permite escribir acuerdo y vista del trabajo en una sola transacción. |
 | 7 | Contratos entre contextos | "Eventos estándar de ciclo de vida" | **Eventos de integración versionados** (`TrabajoCreadoV1` deprecada y `TrabajoCreadoV2` conviviendo) | Los consumidores tienen ciclos de release propios y los eventos quedan persistidos en el tópico: no existe un instante en que todos migren a la vez. |
-| 8 | Alcance | 9 bounded contexts | **4 implementados** (`GestionDeTrabajosBC`, `OperacionesBC`, `PagosBC`, `WalletBC`) **+ BFF** | Los otros cinco siguen siendo válidos como diseño objetivo; se marcan como planeados para no confundir diseño con evidencia. |
+| 8 | Alcance | 9 bounded contexts | **4 implementados** (`GestionDeTrabajosBC`, `OperacionesBC`, `PagosBC`, `WalletBC`) **+ BFF**, los cuatro participando en la saga | Los otros cinco siguen siendo válidos como diseño objetivo; se marcan como planeados para no confundir diseño con evidencia. |
+| 9 | Desenlace de un fallo | Solo compensación | **Compensación o disputa, según el paso** | Un fallo antes de ejecutar el trabajo se compensa en orden inverso. Si falla la acreditación al proveedor —el último paso—, el servicio ya se prestó: revertir el pago dejaría al proveedor trabajando gratis, así que el trabajo pasa a `EnDisputa` y la saga termina en `EN_DISPUTA` para revisión manual. |
 
 **Lo que no cambió:** `GestionDeTrabajosBC` sigue siendo el Core Domain y el upstream
 `[OHS, PL]` del que depende el resto. El refinamiento le quitó responsabilidades ajenas
@@ -61,10 +62,11 @@ flowchart LR
         D_CORE["GestionDeTrabajosBC<br/>+ Orquestador de Sagas + Saga Log"]
         D_OPS["OperacionesBC<br/>acuerdos + ACL por partner<br/>CAMBIÓ: asumió las reglas de SiniestrosBC"]
         D_PAG["PagosBC<br/>participa en la saga"]
-        D_WAL["WalletBC<br/>sin participación en la saga"]
+        D_WAL["WalletBC<br/>CAMBIÓ: paso 5 de la saga<br/>acredita al proveedor"]
         D_BFF --> D_CORE
         D_CORE <-->|"comandos y eventos Pulsar"| D_OPS
         D_CORE <-->|"comandos y eventos Pulsar"| D_PAG
+        D_CORE <-->|"comandos y eventos Pulsar"| D_WAL
         D_BFF --> D_WAL
     end
 
@@ -72,11 +74,9 @@ flowchart LR
 
     classDef nuevo fill:#c8e6c9,stroke:#2e7d32,stroke-width:3px
     classDef cambio fill:#fff9c4,stroke:#f9a825,stroke-width:3px
-    classDef pendiente fill:#ffcdd2,stroke:#c62828,stroke-dasharray:4 3
     classDef viejo fill:#eeeeee,stroke:#9e9e9e
     class D_BFF nuevo
-    class D_CORE,D_OPS,D_PAG cambio
-    class D_WAL pendiente
+    class D_CORE,D_OPS,D_PAG,D_WAL cambio
     class A_CORE,A_SIN,A_OPS,A_PAG,A_WAL viejo
     style ANTES fill:#fafafa,stroke:#bdbdbd
     style DESPUES fill:#f7fdf7,stroke:#66bb6a
@@ -85,25 +85,22 @@ flowchart LR
 | Convención | Significado |
 |---|---|
 | Verde | **Nuevo**: no existía en el TO-BE de la Entrega 1 (el BFF). |
-| Amarillo | **Cambió**: el contexto sigue existiendo, pero su responsabilidad o su patrón de relación se movió (el core asumió la orquestación; OperacionesBC asumió las reglas de partner y pasó de Conformist a ACL). |
-| Rojo punteado | **Pendiente**: previsto en el plan de la Entrega 5 pero aún sin implementar (WalletBC como participante de la saga). |
+| Amarillo | **Cambió**: el contexto sigue existiendo, pero su responsabilidad o su patrón de relación se movió (el core asumió la orquestación; OperacionesBC asumió las reglas de partner y pasó de Conformist a ACL; PagosBC y WalletBC pasaron a ser participantes de la saga). |
 | Gris | Sin cambios frente al diseño original. |
 
 ### 1.3 Divergencias entre el plan de la Entrega 5 y lo implementado
 
-El mapa refinado documenta **lo que está implementado y verificado**, no lo planeado. Tres
-puntos del documento de arquitectura de la Entrega 5 difieren del código, y conviene
-resolverlos antes del video para que la sustentación y el repositorio coincidan:
+El mapa refinado documenta **lo implementado**, no lo planeado. Tras la incorporación de
+WalletBC a la saga, la mayoría de las divergencias quedaron cerradas:
 
-| Punto | Documento de la Entrega 5 | Implementado | Decisión sugerida |
+| Punto | Documento de la Entrega 5 | Implementado | Estado |
 |---|---|---|---|
-| Ubicación del orquestador | Dentro de **WalletBC** (numeral 4.1) | Dentro de **GestionDeTrabajosBC**, con el Saga Log en `trabajos_db` | Mantener la implementación: el orquestador es dueño del agregado `Trabajo`, que es el argumento ya escrito en [`patron-sagas-y-saga-log.md`](patron-sagas-y-saga-log.md). Corregir el documento. |
-| Participantes de la saga | 5 pasos sobre 4 servicios, con `AcreditarProveedor` en WalletBC (numeral 3.1) | 4 pasos sobre **3 servicios**: GestionDeTrabajosBC, PagosBC y OperacionesBC | Implementar el paso de WalletBC (es el ítem de 19 pts de la rúbrica: saga con ≥4 servicios). Depende del dueño de Wallet. |
-| Nomenclatura | `AsignarProveedor`, `RetenerPago`, `EjecutarTrabajo`; estados `PROVEEDOR_ASIGNADO`, `PAGO_RETENIDO`… | `AutorizarPagoTrabajoV1`, `AsignarProveedorTrabajoV1`; estados `INICIADA`, `EN_PROCESO`, `COMPENSANDO`, `COMPENSADA`, `COMPLETADA_EXITOSA`, `FALLIDA` | Adoptar la del código, como pide la propia nota del documento ("renombrar para que el video y el código coincidan"). |
-
-En cuanto WalletBC entre a la saga, este mapa y las vistas de la sección 2 deben actualizarse:
-el paso 4 pasa a ser la acreditación al proveedor y la compensación del paso 3 (liberar la
-asignación) deja de ser código sin uso.
+| Participantes de la saga | 5 pasos sobre 4 servicios, con `AcreditarProveedor` en WalletBC | **5 pasos sobre 4 servicios**: crear trabajo (core), autorizar pago (Pagos), asignar proveedor (Operaciones), ejecutar trabajo (Operaciones) y acreditar al proveedor (Wallet) | ✅ **Resuelto** |
+| Compensación del fallo de acreditación | Reintento con backoff y, si falla, el trabajo pasa a `EnDisputa` sin reversar lo ya ejecutado | Idéntico: WalletBC reintenta 3 veces con backoff exponencial y, agotados, emite `AcreditacionFallidaV1`; el trabajo pasa a `EnDisputa` y la saga termina en `EN_DISPUTA` | ✅ **Resuelto** |
+| Nombres de comandos y eventos del paso de Wallet | `AcreditarProveedor` / `WalletAcreditada` | `AcreditarProveedorV1` / `WalletAcreditadaV1` (mismos nombres, con sufijo de versión) | ✅ **Resuelto** |
+| Ubicación del orquestador | Dentro de **WalletBC** (numeral 4.1) | Dentro de **GestionDeTrabajosBC**, con el Saga Log en `trabajos_db` | ⚠️ **Divergente**. Se sostiene la implementación: el orquestador es dueño del agregado `Trabajo`, que es el argumento ya escrito en [`patron-sagas-y-saga-log.md`](patron-sagas-y-saga-log.md). Corregir el numeral 4.1 del documento. |
+| Orden y alcance de los pasos | 1 asignar proveedor · 2 retener pago · 3 ejecutar · 4 acreditar · 5 cerrar trabajo | 1 crear trabajo preliminar · 2 autorizar pago · 3 asignar proveedor · 4 ejecutar · 5 acreditar | ⚠️ **Menor**. El dinero se retiene antes de comprometer a un proveedor, y el cierre del trabajo queda implícito al completar el paso 5. Actualizar la tabla 3.1 del documento. |
+| Estados de la máquina | `PROVEEDOR_ASIGNADO`, `PAGO_RETENIDO`, `EJECUTADA`, `ACREDITADA`, `COMPLETADA` | `INICIADA`, `EN_PROCESO`, `COMPENSANDO`, `COMPENSADA`, `COMPLETADA_EXITOSA`, `FALLIDA`, `EN_DISPUTA` | ⚠️ **Menor**. El avance por paso se lee en `saga_pasos`, no en el estado global. Adoptar la nomenclatura del código, como pide la propia nota del documento. |
 
 ### 1.4 Definición Formal en ContextMapper
 
@@ -123,10 +120,10 @@ flowchart TB
 
     subgraph IMPL["Implementado y verificado"]
         direction TB
-        CORE["GestionDeTrabajosBC :8001<br/>Core Domain · Orquestador de Sagas · Saga Log"]
+        CORE["GestionDeTrabajosBC :8001<br/>Core Domain · Orquestador de Sagas (5 pasos) · Saga Log"]
         OPS["OperacionesBC :8002<br/>Acuerdos de partner · ACL por formato"]
         PAG["PagosBC :8003<br/>Pagos · ACL y breaker por PSP"]
-        WAL["WalletBC :8000<br/>Billetera del proveedor"]
+        WAL["WalletBC :8000<br/>Billetera del proveedor · paso 5 de la saga"]
     end
 
     subgraph PLAN["Planeado · diseño TO-BE sin implementación"]
@@ -147,6 +144,7 @@ flowchart TB
     CORE -->|"eventos-trabajo V1/V2 · OHS+PL a ACL"| OPS
     CORE -->|"saga · comandos y eventos de operaciones"| OPS
     CORE -->|"TrabajoCerradoV1 · CF<br/>saga · comandos y eventos de pago"| PAG
+    CORE -->|"saga · comandos y eventos de wallet<br/>acreditar al proveedor"| WAL
     PAG -.->|"planeado · pago liberado"| WAL
 
     IMPL -.->|"diseño TO-BE"| PLAN
@@ -170,6 +168,8 @@ flowchart TB
   **Apache Pulsar**; nunca hay una llamada REST entre bounded contexts.
 - Las dos flechas entre el core y `OperacionesBC` no son redundantes: una es el flujo de
   negocio (solicitud del partner y eventos del trabajo) y la otra es la saga.
+- Los cuatro bounded contexts implementados participan en la saga: el core la orquesta, y
+  PagosBC, OperacionesBC y WalletBC ejecutan un paso cada uno (Operaciones, dos).
 - El BFF es el **único** punto por el que entra un cliente externo al negocio.
 
 ---
@@ -193,6 +193,7 @@ sequenceDiagram
     participant Bus as Apache Pulsar
     participant Pagos as PagosBC
     participant Ops as OperacionesBC
+    participant Wal as WalletBC
 
     Cliente->>GW: POST /api/trabajos/completar-servicio
     GW->>BFF: POST /trabajos/completar-servicio
@@ -228,7 +229,24 @@ sequenceDiagram
         Orq->>Log: paso 3 EXITOSO
     end
 
-    Orq->>Orq: Unidad de trabajo: confirmar el trabajo
+    rect rgb(255, 245, 230)
+        note over Orq, Ops: Paso 4 — ejecución en campo (sin comando)
+        note right of Ops: El trabajo ya está asignado:<br/>Operaciones reporta cómo terminó
+        Ops->>Bus: eventos-operaciones · EjecucionTrabajoCompletadaV1
+        Bus->>Orq: entrega del evento
+        Orq->>Log: paso 4 EXITOSO
+    end
+
+    rect rgb(237, 247, 255)
+        note over Orq, Wal: Paso 5 — liquidación al proveedor
+        Orq->>Bus: comandos-wallet · AcreditarProveedorV1
+        Bus->>Wal: entrega del comando
+        Wal->>Wal: Unidad de trabajo: acreditar el saldo<br/>(idempotente por referencia de saga)
+        Wal->>Bus: eventos-wallet · WalletAcreditadaV1
+        Bus->>Orq: entrega del evento
+        Orq->>Log: paso 5 EXITOSO
+    end
+
     Orq->>Log: saga COMPLETADA_EXITOSA
 
     Cliente->>GW: GET /api/trabajos/{trabajo_id}/estado
@@ -249,8 +267,9 @@ Tres decisiones visibles en el diagrama:
 
 ### 2.2 Flujo Compensatorio ante Fallos
 
-Fallo en el paso 3 (sin proveedor disponible). Las compensaciones se ejecutan en **orden
-inverso**: primero se revierte el pago (paso 2) y luego se cancela el trabajo (paso 1).
+Fallo en el paso 4: el proveedor asignado no pudo ejecutar el trabajo. Como el servicio **no**
+se prestó, se compensa en **orden inverso estricto**, y cada compensación espera la
+confirmación de la anterior antes de seguir.
 
 ```mermaid
 sequenceDiagram
@@ -263,18 +282,24 @@ sequenceDiagram
     participant Pagos as PagosBC
     participant Ops as OperacionesBC
 
-    note over Orq, Pagos: Pasos 1 y 2 ya confirmados (trabajo preliminar y pago retenido)
+    note over Orq, Ops: Pasos 1, 2 y 3 confirmados (trabajo, pago retenido, proveedor asignado)
 
-    Orq->>Bus: comandos-operaciones · AsignarProveedorTrabajoV1
-    Bus->>Ops: entrega del comando
-    Ops->>Bus: eventos-operaciones · AsignacionProveedorRechazadaV1
+    Ops->>Bus: eventos-operaciones · EjecucionTrabajoFallidaV1
     Bus->>Orq: entrega del evento
 
     rect rgb(255, 230, 230)
         note over Orq, Log: Compensación en orden inverso
-        Orq->>Log: paso 3 FALLIDO · saga COMPENSANDO
 
-        note over Orq, Pagos: Compensación del paso 2
+        Orq->>Log: paso 4 FALLIDO · saga COMPENSANDO
+
+        note over Orq, Ops: Compensación del paso 3 — liberar al proveedor
+        Orq->>Bus: comandos-operaciones · LiberarAsignacionProveedorV1
+        Bus->>Ops: entrega del comando
+        Ops->>Bus: eventos-operaciones · AsignacionProveedorLiberadaV1
+        Bus->>Orq: entrega del evento
+        Orq->>Log: paso 3 COMPENSADO
+
+        note over Orq, Pagos: Compensación del paso 2 — devolver el dinero
         Orq->>Bus: comandos-pago · RevertirPagoTrabajoV1
         Bus->>Pagos: entrega del comando
         Pagos->>Pagos: Unidad de trabajo: liberar la retención
@@ -282,21 +307,72 @@ sequenceDiagram
         Bus->>Orq: entrega del evento
         Orq->>Log: paso 2 COMPENSADO
 
-        note over Orq, Log: Compensación del paso 1 (local)
+        note over Orq, Log: Compensación del paso 1 — local
         Orq->>Orq: Unidad de trabajo: cancelar el trabajo
         Orq->>Log: paso 1 COMPENSADO · saga COMPENSADA
     end
 
     Cliente->>BFF: GET /api/sagas/{saga_id}
-    BFF-->>Cliente: 200 estado COMPENSADA + motivo del rechazo
+    BFF-->>Cliente: 200 estado COMPENSADA + motivo del fallo
 ```
 
-- La saga permanece en `COMPENSANDO` mientras espera la confirmación del reverso. Solo pasa a
-  `COMPENSADA` cuando llega `PagoTrabajoRevertidoV1` con `revertido=true`.
-- Si el reverso falla, el paso queda en `ERROR` y la saga termina en `FALLIDA`: queda
-  registrada para intervención manual en vez de fingir consistencia.
-- El fallo puede forzarse para la demostración con `simular_fallo_en_paso` (`PAGO` u
-  `OPERACIONES`) en la solicitud de inicio.
+- **Cada eslabón espera la confirmación del anterior.** La saga permanece en `COMPENSANDO`
+  mientras tanto; solo pasa a `COMPENSADA` cuando el último paso local queda revertido.
+- **Si una compensación falla**, el paso queda en `ERROR` y la saga termina en `FALLIDA`:
+  queda registrada para intervención manual en vez de fingir consistencia.
+- **Fallos más tempranos recorren menos cadena.** Un rechazo de pago (paso 2) solo cancela el
+  trabajo; un rechazo de asignación (paso 3) revierte el pago y luego cancela el trabajo.
+- El fallo puede forzarse con `simular_fallo_en_paso` (`PAGO`, `OPERACIONES`, `EJECUCION` o
+  `WALLET`), o con `probar_saga_orquestada.py --modo` en sus variantes `exito`,
+  `compensar-pago`, `compensar-operaciones`, `compensar-ejecucion` y `disputa-wallet`.
+
+### 2.3 Flujo de disputa: el paso que no se compensa
+
+Fallo en el paso 5, la acreditación al proveedor. Aquí el trabajo **ya se ejecutó**: revertir
+el pago dejaría al proveedor sin respaldo de un servicio que sí prestó. Por eso este paso no
+se compensa.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Orq as GestionDeTrabajosBC<br/>Orquestador
+    participant Log as Saga Log
+    participant Bus as Apache Pulsar
+    participant Wal as WalletBC
+    participant Ops as OperacionesBC
+
+    note over Orq, Wal: Pasos 1 a 4 confirmados: el trabajo se ejecutó y el pago sigue retenido
+
+    Orq->>Bus: comandos-wallet · AcreditarProveedorV1
+    Bus->>Wal: entrega del comando
+
+    rect rgb(255, 243, 224)
+        note over Wal: Reintentos con backoff exponencial<br/>3 intentos, espera inicial 0,5 s, factor 2
+        Wal->>Wal: intento 1 falla (p. ej. cuenta bloqueada)
+        Wal->>Wal: intento 2 falla
+        Wal->>Wal: intento 3 falla
+    end
+
+    Wal->>Bus: eventos-wallet · AcreditacionFallidaV1 (intentos=3)
+    Bus->>Orq: entrega del evento
+
+    rect rgb(255, 235, 238)
+        note over Orq, Ops: Disputa, no compensación
+        Orq->>Log: paso 5 FALLIDO
+        Orq->>Orq: Unidad de trabajo: trabajo.marcar_en_disputa()
+        Orq->>Log: ABRIR_DISPUTA_REVISION_MANUAL (operaciones-service)
+        Orq->>Log: saga EN_DISPUTA
+    end
+
+    note over Ops: Un agente resuelve la disputa a mano:<br/>el dinero sigue retenido y trazado
+```
+
+- **Ni se revierte el pago ni se cancela el trabajo.** El agregado `Trabajo` pasa al estado
+  `EnDisputa` y publica `TrabajoEnDisputaV1` para que el resto del sistema se entere.
+- **La saga termina en `EN_DISPUTA`**, un desenlace final distinto de `COMPENSADA`: no es un
+  error del sistema, es trabajo pendiente para una persona.
+- **El dinero nunca queda sin registro**, que es la hipótesis del escenario de consistencia
+  transaccional: o se acredita, o queda retenido y trazado en el Saga Log.
 
 ---
 
@@ -320,7 +396,7 @@ flowchart TB
             CORE2["gestion-trabajos-2<br/>:8004 · perfil escalabilidad"]
             OPS["operaciones<br/>:8002 · /operaciones"]
             PAG["pagos<br/>:8003 · /pagos"]
-            WAL["wallet<br/>:8000 · /wallet"]
+            WAL["wallet<br/>:8000 · /wallet · paso 5 saga"]
             BUS["pulsar (standalone)<br/>:6650 · :8080"]
 
             DBT[("postgres-trabajos<br/>:5433 · trabajos_db<br/>+ Saga Log")]
@@ -341,6 +417,7 @@ flowchart TB
     CORE2 <--> BUS
     OPS <--> BUS
     PAG <--> BUS
+    WAL <--> BUS
 
     CORE --- DBT
     CORE2 --- DBT
@@ -382,6 +459,8 @@ flowchart TB
 | PagosBC | `pagos` | 8003 | `/pagos` | `pagos_db` |
 | WalletBC | `wallet` | 8000 | `/wallet` | `wallet_db` |
 
+Tópicos de Pulsar que usa la saga: `comandos-pago` / `eventos-pago`, `comandos-operaciones` / `eventos-operaciones` y `comandos-wallet` / `eventos-wallet`. Los eventos de negocio del core siguen viajando por `eventos-trabajo` y sus comandos por `comandos-trabajo`.
+
 > Al llamar los puertos directos use `127.0.0.1` y no `localhost`: no hay listener IPv6 y un
 > cliente que resuelva `localhost` intenta `::1` primero, perdiendo unos 2 segundos por
 > petición. El gateway no tiene ese problema.
@@ -396,11 +475,12 @@ sustenta y con la evidencia que debe aportarlo.
 
 | Refinamiento | Escenario de calidad que lo sustenta | Evidencia esperada | Estado de la evidencia |
 |---|---|---|---|
-| Apache Pulsar en lugar de Kafka, con suscripción `Shared` | Elasticidad ante picos de demanda (4x siniestros) | Latencia p50/p95/p99 y throughput con una y con dos réplicas del core; el reparto de comandos sin cambios de código | Script disponible: [`carga_escalabilidad.py`](../../gestion-trabajos-service/scripts/carga_escalabilidad.py). Resultados pendientes en [`informe-experimentacion.md`](informe-experimentacion.md) |
-| Saga orquestada con Saga Log en el core | Consistencia transaccional bajo fallo concurrente | Que no quede dinero retenido sin registro: para N sagas con fallos forzados, el estado del Saga Log debe cuadrar con lo retenido en PagosBC | Scripts disponibles: `probar_saga_orquestada.py --modo compensar-pago` y `--modo compensar-operaciones`. Resultados pendientes |
-| Comunicación solo por Pulsar entre contextos (nunca REST entre servicios) | Resiliencia ante caída de un bróker de Pulsar | Sagas en curso que se recuperan solas al restablecer el bróker, frente a las que quedan colgadas; tiempo de recuperación | Pendiente de ejecutar |
+| Apache Pulsar en lugar de Kafka, con suscripción `Shared` | Elasticidad ante picos de demanda (4x siniestros) | Latencia p50/p95/p99 y throughput con una y con dos réplicas del core; el reparto de comandos sin cambios de código | Scripts disponibles: [`carga_elasticidad_sagas.py`](../../gestion-trabajos-service/scripts/carga_elasticidad_sagas.py) y [`carga_escalabilidad.py`](../../gestion-trabajos-service/scripts/carga_escalabilidad.py). Resultados en [`experimentos-escenarios-saga.md`](experimentos-escenarios-saga.md) |
+| Saga orquestada con Saga Log en el core | Consistencia transaccional bajo fallo concurrente | Que no quede dinero retenido sin registro: para N sagas con fallos forzados, el estado del Saga Log debe cuadrar con lo retenido en PagosBC | Script disponible: [`auditoria_consistencia_sagas.py`](../../gestion-trabajos-service/scripts/auditoria_consistencia_sagas.py), que audita N sagas concurrentes con fallos forzados y verifica que ninguna deje dinero retenido sin registro. Los cuatro desenlaces se fuerzan con `probar_saga_orquestada.py --modo` |
+| Comunicación solo por Pulsar entre contextos (nunca REST entre servicios) | Resiliencia ante caída de un bróker de Pulsar | Sagas en curso que se recuperan solas al restablecer el bróker, frente a las que quedan colgadas; tiempo de recuperación | Script disponible: [`prueba_disponibilidad_pulsar.py`](../../gestion-trabajos-service/scripts/prueba_disponibilidad_pulsar.py) |
 | Reglas de partner en OperacionesBC y ACL por formato | Modificabilidad: integrar un partner nuevo | Onboarding de un partner sin tocar ni redesplegar el core (`docker compose up -d --build operaciones`), con el tiempo de actividad del core sin cambios | **Verificado**: 31 checks de los escenarios 9 y 3 en verde, incluido el onboarding de `cooperativa-sur` |
 | Circuit breaker por partner y por PSP | Resiliencia ante caída de un partner o un PSP | Que la caída de un partner no degrade a los demás, y la recuperación automática al volver | **Verificado**: el core responde en decenas de milisegundos con el partner caído; recuperación automática sin intervención |
+| Disputa en vez de compensación en el último paso | Consistencia transaccional (corrección del desenlace) | Que un fallo de acreditación deje el trabajo `EnDisputa` con el dinero trazado, en vez de revertir un servicio ya prestado | Verificable con `probar_saga_orquestada.py --modo disputa-wallet`: la saga termina en `EN_DISPUTA` |
 | BFF como única entrada síncrona y gateway como única puerta pública | Transversal a los tres escenarios (superficie de ataque y acoplamiento de clientes) | Clientes que no conocen ni Pulsar ni la partición en microservicios; puertos internos no alcanzables desde la red | **Verificado**: 29 checks del gateway en verde, con los puertos internos rechazando conexión desde la red |
 
 **Cómo cerrar esta sección:** cuando el informe de experimentación tenga los resultados de los
@@ -419,6 +499,7 @@ la presentación o el informe sin depender del renderizado de Mermaid:
 | Mapa de contextos TO-BE refinado | [`imagenes/mapa-contextos-to-be-refinado.png`](imagenes/mapa-contextos-to-be-refinado.png) |
 | Saga — flujo exitoso | [`imagenes/saga-happy-path.png`](imagenes/saga-happy-path.png) |
 | Saga — compensación | [`imagenes/saga-compensacion.png`](imagenes/saga-compensacion.png) |
+| Saga — disputa (paso sin compensación) | [`imagenes/saga-disputa.png`](imagenes/saga-disputa.png) |
 | Topología de despliegue | [`imagenes/topologia-despliegue.png`](imagenes/topologia-despliegue.png) |
 
 El `.mmd` de cada diagrama y las instrucciones para regenerarlos están en
