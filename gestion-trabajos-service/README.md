@@ -155,6 +155,7 @@ rechaza): con suscripciones `Key_Shared`, los hechos de un mismo trabajo llegan 
 | `SubTrabajoIniciadoV1`, `SubTrabajoCompletadoV1`, `SubTrabajoDesbloqueadoV1` | Avance del flujo | OperacionesBC, Marketplace |
 | `TrabajoRediagnosticadoV1` | Cambio de alcance | OperacionesBC |
 | `TrabajoCanceladoV1` | Cancelación, con liquidaciones de lo completado | PagosBC (compensación), OperacionesBC |
+| `TrabajoEnDisputaV1` | La liquidación de un trabajo ya ejecutado no pudo completarse | OperacionesBC (bandeja de revisión manual), Marketplace |
 | `TrabajoCerradoV1` | Cierre | PagosBC (libera el pago), CreditoBC, OperacionesBC |
 
 Comandos aceptados (propiedad `command_type`, cuerpo JSON):
@@ -264,7 +265,7 @@ Valores permitidos:
 
 - `urgencia`: `Baja`, `Media`, `Alta` o `Emergencia`.
 - `categoria`: `Plomeria`, `Electricidad`, `Carpinteria`, `Pintura` o `Baldoseria`.
-- filtro `estado`: `Creado`, `EnEjecucion`, `Cerrado` o `Cancelado`.
+- filtro `estado`: `Creado`, `EnEjecucion`, `Cerrado`, `Cancelado` o `EnDisputa`.
 
 Códigos de respuesta:
 
@@ -385,8 +386,9 @@ Las decisiones de la capa anti-corrupción con partners están en OperacionesBC 
 ### DA-11. Sagas por Orquestación y Saga Log para transacciones distribuidas
 
 - **Contexto:** la activación de un servicio involucra a GestionDeTrabajosBC (crear trabajo preliminar),
-  PagosBC (retener fondos) y OperacionesBC (asignar proveedor). Una transacción 2PC tradicional
-  afecta la disponibilidad y rompe la autonomía de los microservicios.
+  PagosBC (retener fondos), OperacionesBC (asignar proveedor y ejecutar) y WalletBC (acreditar la
+  liquidación). Una transacción 2PC tradicional afecta la disponibilidad y rompe la autonomía de
+  los microservicios.
 - **Decisión:** coordinar la transacción mediante el patrón de **Saga por Orquestación** alojado
   en este servicio (el Core Domain), registrando cada transición de estado y payload en un
   **Saga Log** persistente (`saga_instancias` y `saga_pasos`). Ante rechazos de negocio, el
@@ -394,21 +396,91 @@ Las decisiones de la capa anti-corrupción con partners están en OperacionesBC 
 - **Consecuencias:** trazabilidad completa del workflow distribuido, observabilidad granular y
   consistencia eventual sin acoplamiento temporal síncrono.
 
+### DA-12. El último paso no se compensa: estado `EN_DISPUTA`
+
+- **Contexto:** el paso final de la saga acredita al proveedor en WalletBC. Para entonces el
+  trabajo físico ya se ejecutó. Si la acreditación falla (billetera bloqueada, caída de la
+  pasarela interna), compensar significaría cancelar el trabajo y devolverle el dinero al
+  cliente por un servicio que sí recibió, y dejar al proveedor sin cobrar lo que trabajó.
+- **Decisión:** WalletBC reintenta con backoff exponencial y, si la acreditación no prospera,
+  emite `AcreditacionFallidaV1`. El orquestador **no compensa nada**: marca el trabajo con el
+  estado `EN_DISPUTA` (agregado `Trabajo`), cierra la saga en `EN_DISPUTA` y registra en el
+  Saga Log el paso `ABRIR_DISPUTA_REVISION_MANUAL` con el número de intentos. Operaciones
+  resuelve la disputa a mano cerrando o cancelando el trabajo.
+- **Alternativa descartada:** compensar la saga completa. Es correcta mientras los pasos son
+  reversibles, pero deja de serlo en cuanto el mundo real ya cambió.
+- **Consecuencias:** la saga tiene un estado final más (`EN_DISPUTA`), que no es un error
+  técnico sino trabajo pendiente para un humano. `EN_DISPUTA` tampoco es un estado final del
+  agregado: el trabajo admite cerrarse o cancelarse cuando se resuelve.
+
 ## Transacciones Distribuidas (Sagas) y Saga Log
+
+La Saga de Activación de Servicio recorre cinco pasos sobre cuatro microservicios:
+
+| Paso | Nombre | Servicio | Cómo avanza |
+|---|---|---|---|
+| 1 | `CREAR_TRABAJO_PRELIMINAR` | gestion-trabajos | Transacción local (unidad de trabajo) |
+| 2 | `AUTORIZAR_PAGO` | pagos | `AutorizarPagoTrabajoV1` → `PagoTrabajoAutorizadoV1` |
+| 3 | `ASIGNAR_PROVEEDOR` | operaciones | `AsignarProveedorTrabajoV1` → `ProveedorTrabajoAsignadoV1` |
+| 4 | `EJECUTAR_TRABAJO` | operaciones | Sin comando: Operaciones reporta `EjecucionTrabajoCompletadaV1` |
+| 5 | `ACREDITAR_PROVEEDOR` | wallet | `AcreditarProveedorV1` → `WalletAcreditadaV1` |
+
+Desenlaces y compensaciones, siempre en orden inverso:
+
+| Fallo | Evento que lo anuncia | Qué hace el orquestador | Estado final |
+|---|---|---|---|
+| Pago rechazado (paso 2) | `PagoTrabajoRechazadoV1` | Cancela el trabajo. Todavía no hay asignación que liberar. | `COMPENSADA` |
+| Asignación rechazada (paso 3) | `AsignacionProveedorRechazadaV1` | `RevertirPagoTrabajoV1` → cancela el trabajo | `COMPENSADA` |
+| Ejecución fallida (paso 4) | `EjecucionTrabajoFallidaV1` | `LiberarAsignacionProveedorV1` → `RevertirPagoTrabajoV1` → cancela el trabajo | `COMPENSADA` |
+| Acreditación fallida (paso 5) | `AcreditacionFallidaV1` | **Nada se revierte**: el trabajo pasa a `EN_DISPUTA` | `EN_DISPUTA` |
+
+Cada compensación espera la confirmación de la anterior antes de seguir: el reverso del pago
+solo se pide cuando OperacionesBC confirma `AsignacionProveedorLiberadaV1`, y el trabajo solo
+se cancela cuando PagosBC confirma `PagoTrabajoRevertidoV1`. Eso evita condiciones de carrera
+entre compensaciones.
 
 Endpoints disponibles para la orquestación:
 - `POST /sagas/activar-servicio`: inicia la transacción distribuida y devuelve `202 Accepted` junto con `saga_id` y `trabajo_id`.
 - `GET /sagas/{saga_id}`: consulta la línea de tiempo completa del Saga Log (pasos, estados, timestamps y errores).
 - `GET /sagas`: lista las transacciones recientes.
 
+`simular_fallo_en_paso` acepta `PAGO`, `OPERACIONES`, `EJECUCION` o `WALLET` para forzar cada
+desenlace en una demostración.
+
 Para ejecutar las pruebas de la Saga:
 ```bash
-# Prueba unitaria en memoria (Happy Path y Compensación):
+# Prueba unitaria en memoria (camino feliz, dos compensaciones y disputa):
 python3 scripts/test_unitario_saga.py
 
 # Prueba de integración con Docker y Apache Pulsar:
 python3 -m scripts.probar_saga_orquestada --modo exito
+python3 -m scripts.probar_saga_orquestada --modo compensar-pago
 python3 -m scripts.probar_saga_orquestada --modo compensar-operaciones
+python3 -m scripts.probar_saga_orquestada --modo compensar-ejecucion
+python3 -m scripts.probar_saga_orquestada --modo disputa-wallet
+```
+
+### Experimentos de calidad sobre la saga
+
+Tres experimentos automatizados miden la saga desde afuera, por HTTP, con el stack
+completo arriba. Cada uno imprime sus métricas y un veredicto por hipótesis, y vuelca el
+detalle por saga con `--csv`. El protocolo, los umbrales y las amenazas a la validez están
+en [`docs/semana-7/experimentos-escenarios-saga.md`](../docs/semana-7/experimentos-escenarios-saga.md).
+
+```bash
+# Elasticidad: rampa de 1x a 4x la línea base de inicios de saga.
+# Mide aceptación HTTP (p50/p95/p99), latencia de la saga completa y tasa de saturación.
+python3 -m scripts.carga_elasticidad_sagas --csv
+
+# Disponibilidad: derriba Pulsar con sagas en tránsito y mide retenidas vs. recuperadas.
+# `pausa` conserva los ledgers (partición de red); `caida` los borra (standalone limpio).
+python3 -m scripts.prueba_disponibilidad_pulsar --modo pausa --csv
+python3 -m scripts.prueba_disponibilidad_pulsar --modo caida --num 20 --csv
+
+# Consistencia: sagas concurrentes con fallos aleatorios; audita Saga Log × PagosBC × WalletBC
+# y exige que `cobrado − acreditado − custodia` sea 0. Sale con código 1 si hay descuadre.
+python3 -m scripts.auditoria_consistencia_sagas --num 20 --csv
+python3 -m scripts.auditoria_consistencia_sagas --solo-auditar --limite 100
 ```
 
 

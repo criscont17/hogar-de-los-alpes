@@ -87,16 +87,27 @@ class ConsumidorEventosSagaPulsar:
                     pass
 
     def _despachar_a_orquestador(self, tipo_evento: str, saga_id: UUID, payload: dict[str, Any]) -> None:
-        if tipo_evento == "PagoTrabajoAutorizadoV1":
-            self._orquestador.procesar_pago_autorizado(saga_id, payload)
-        elif tipo_evento == "PagoTrabajoRechazadoV1":
-            self._orquestador.procesar_pago_rechazado(saga_id, payload)
-        elif tipo_evento == "PagoTrabajoRevertidoV1":
-            self._orquestador.procesar_pago_revertido(saga_id, payload)
-        elif tipo_evento == "ProveedorTrabajoAsignadoV1":
-            self._orquestador.procesar_proveedor_asignado(saga_id, payload)
-        elif tipo_evento == "AsignacionProveedorRechazadaV1":
-            self._orquestador.procesar_proveedor_rechazado(saga_id, payload)
+        manejar = self._MANEJADORES.get(tipo_evento)
+        if manejar is None:
+            return
+        manejar(self._orquestador, saga_id, payload)
+
+    # El documento de arquitectura nombra los eventos de WalletBC `WalletAcreditada` y
+    # `AcreditacionFallida`; en el bus viajan con sufijo de versión. Se aceptan ambos.
+    _MANEJADORES = {
+        "PagoTrabajoAutorizadoV1": lambda orq, s, p: orq.procesar_pago_autorizado(s, p),
+        "PagoTrabajoRechazadoV1": lambda orq, s, p: orq.procesar_pago_rechazado(s, p),
+        "PagoTrabajoRevertidoV1": lambda orq, s, p: orq.procesar_pago_revertido(s, p),
+        "ProveedorTrabajoAsignadoV1": lambda orq, s, p: orq.procesar_proveedor_asignado(s, p),
+        "AsignacionProveedorRechazadaV1": lambda orq, s, p: orq.procesar_proveedor_rechazado(s, p),
+        "AsignacionProveedorLiberadaV1": lambda orq, s, p: orq.procesar_asignacion_liberada(s, p),
+        "EjecucionTrabajoCompletadaV1": lambda orq, s, p: orq.procesar_ejecucion_completada(s, p),
+        "EjecucionTrabajoFallidaV1": lambda orq, s, p: orq.procesar_ejecucion_fallida(s, p),
+        "WalletAcreditadaV1": lambda orq, s, p: orq.procesar_wallet_acreditada(s, p),
+        "WalletAcreditada": lambda orq, s, p: orq.procesar_wallet_acreditada(s, p),
+        "AcreditacionFallidaV1": lambda orq, s, p: orq.procesar_acreditacion_fallida(s, p),
+        "AcreditacionFallida": lambda orq, s, p: orq.procesar_acreditacion_fallida(s, p),
+    }
 
     def detener(self) -> None:
         self._detener.set()

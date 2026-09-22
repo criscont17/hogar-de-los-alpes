@@ -12,18 +12,58 @@ from app.dominio.errores import (
     BilleteraNoEncontradaError,
     FondosInsuficientesError,
 )
-from app.seedwork.dominio import DomainError
+from app.infraestructura import contenedor
+from app.infraestructura.adaptadores.entrada.mensajeria import ConsumidorComandosWalletPulsar
 from app.infraestructura.adaptadores.salida.persistencia.db import crear_tablas
+from app.infraestructura.configuracion import (
+    PULSAR_CONSUMIR_COMANDOS_WALLET,
+    PULSAR_SUSCRIPCION_COMANDOS_WALLET,
+    PULSAR_TOPICO_COMANDOS_WALLET,
+    PULSAR_TOPICO_EVENTOS_WALLET,
+    PULSAR_URL,
+    SEMBRAR_BILLETERAS,
+)
+from app.infraestructura.semilla import sembrar_billeteras
+from app.seedwork.dominio import DomainError
 
 from .rutas_billetera import router
+from .rutas_proveedor_wallet import router as router_proveedor
+
+logger = logging.getLogger("wallet.api")
 
 
-def crear_app(*, inicializar_db: bool = True) -> FastAPI:
+def crear_app(*, inicializar_db: bool = True, iniciar_mensajeria: bool = True) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         if inicializar_db:
             crear_tablas()
-        yield
+            if SEMBRAR_BILLETERAS:
+                sembrar_billeteras()
+
+        consumidor_comandos = None
+        if iniciar_mensajeria and PULSAR_CONSUMIR_COMANDOS_WALLET:
+            consumidor_comandos = ConsumidorComandosWalletPulsar(
+                url=PULSAR_URL,
+                topico_comandos=PULSAR_TOPICO_COMANDOS_WALLET,
+                topico_eventos=PULSAR_TOPICO_EVENTOS_WALLET,
+                suscripcion=PULSAR_SUSCRIPCION_COMANDOS_WALLET,
+                procesador=contenedor.procesador_comandos_saga(),
+            )
+            try:
+                consumidor_comandos.iniciar()
+            except Exception:
+                # Sin Pulsar la API REST sigue atendiendo billeteras y retiros; solo
+                # no llega el paso de acreditación de la saga.
+                logger.exception("no se pudo iniciar el consumidor de comandos de saga en WalletBC")
+                consumidor_comandos = None
+
+        try:
+            yield
+        finally:
+            if consumidor_comandos is not None:
+                consumidor_comandos.detener()
+            if iniciar_mensajeria:
+                contenedor.reiniciar()
 
     application = FastAPI(
         title="Hogar de los Alpes - WalletBC",
@@ -31,6 +71,7 @@ def crear_app(*, inicializar_db: bool = True) -> FastAPI:
         lifespan=lifespan,
     )
     application.include_router(router)
+    application.include_router(router_proveedor)
 
     @application.exception_handler(BilleteraNoEncontradaError)
     async def no_encontrada(_: Request, exc: BilleteraNoEncontradaError):

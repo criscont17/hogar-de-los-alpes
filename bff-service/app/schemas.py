@@ -22,7 +22,11 @@ class IniciarTrabajoRequest(BaseModel):
     referencia_externa: str | None = None
     simular_fallo_en_paso: str | None = Field(
         default=None,
-        description="Solo para demos: 'PAGO' u 'OPERACIONES' fuerza el fallo de ese paso y dispara la compensación.",
+        description=(
+            "Solo para demos. 'PAGO', 'OPERACIONES' y 'EJECUCION' fuerzan el fallo de "
+            "ese paso y disparan la compensación en orden inverso; 'WALLET' agota los "
+            "reintentos de la acreditación y deja el trabajo EN_DISPUTA, sin revertir nada."
+        ),
     )
 
 

@@ -52,7 +52,13 @@ async def obtener_trabajo(trabajo_id: str) -> httpx.Response:
 # --- WalletBC: saldo y movimientos del proveedor ------------------------------------
 
 
-async def debitar_billetera(billetera_id: str, payload: dict) -> httpx.Response:
+async def retirar_de_proveedor(proveedor_id: str, payload: dict) -> httpx.Response:
+    """WalletBC resuelve la billetera del proveedor; el BFF no conoce su id contable."""
+
     return await _pedir(
-        URL_WALLET, "wallet-service", "POST", f"/billeteras/{billetera_id}/debitar", json=payload
+        URL_WALLET,
+        "wallet-service",
+        "POST",
+        f"/proveedores/{proveedor_id}/wallet/retiros",
+        json=payload,
     )

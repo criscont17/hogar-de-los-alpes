@@ -6,12 +6,18 @@ Permite ejecutar de punta a punta:
    - GestionDeTrabajosBC crea trabajo preliminar (Paso 1).
    - PagosBC recibe comando por Pulsar y autoriza el pago (Paso 2).
    - OperacionesBC recibe comando por Pulsar y asigna el proveedor (Paso 3).
-   - GestionDeTrabajosBC confirma el trabajo y completa la saga (Saga Log: COMPLETADA_EXITOSA).
+   - OperacionesBC reporta la ejecución del trabajo en campo (Paso 4).
+   - WalletBC acredita la liquidación al proveedor (Paso 5).
+   - El Saga Log queda en COMPLETADA_EXITOSA.
 
 2. Camino con Fallo y Compensación:
-   - Simula fallo en Paso 2 (Pagos) o Paso 3 (Operaciones).
+   - Simula fallo en Paso 2 (Pagos), Paso 3 (Operaciones) o Paso 4 (Ejecución).
    - Verifica que el orquestador ejecute las compensaciones en orden inverso.
    - Verifica que el Saga Log registre el estado COMPENSADA y el motivo del fallo.
+
+3. Camino EN_DISPUTA (Paso 5, acreditación):
+   - WalletBC reintenta con backoff y, al agotarse, emite AcreditacionFallidaV1.
+   - El trabajo NO se revierte (ya se ejecutó): pasa a EN_DISPUTA para revisión manual.
 
 Uso:
   # Probar camino exitoso:
@@ -22,6 +28,12 @@ Uso:
 
   # Probar fallo en pago (Paso 2):
   python -m scripts.probar_saga_orquestada --modo compensar-pago
+
+  # Probar fallo en la ejecución en campo (Paso 4):
+  python -m scripts.probar_saga_orquestada --modo compensar-ejecucion
+
+  # Probar acreditación fallida y disputa (Paso 5):
+  python -m scripts.probar_saga_orquestada --modo disputa-wallet
 """
 
 import argparse
@@ -68,11 +80,12 @@ def probar_saga(modo: str):
     print(f"  Endpoint base: {base_url}")
     print(f"========================================================\n")
 
-    simular_fallo = None
-    if modo == "compensar-operaciones":
-        simular_fallo = "OPERACIONES"
-    elif modo == "compensar-pago":
-        simular_fallo = "PAGO"
+    simular_fallo = {
+        "compensar-operaciones": "OPERACIONES",
+        "compensar-pago": "PAGO",
+        "compensar-ejecucion": "EJECUCION",
+        "disputa-wallet": "WALLET",
+    }.get(modo)
 
     solicitud = {
         "cliente_id": "cli-demo-100",
@@ -99,7 +112,7 @@ def probar_saga(modo: str):
     print(f"   ✓ Trabajo preliminar creado. trabajo_id={respuesta.get('trabajo_id')}\n")
 
     print(f"2. Monitoreando transiciones en el Saga Log (polling GET /{saga_id})...")
-    espera_maxima = 15
+    espera_maxima = 25
     inicio = time.time()
     estado_final_alcanzado = False
 
@@ -115,7 +128,7 @@ def probar_saga(modo: str):
 
         print(f"   -> Estado: {estado_global:20s} | Paso actual: {paso_actual:25s} | Pasos registrados: {len(pasos)}")
 
-        if estado_global in {"COMPLETADA_EXITOSA", "COMPENSADA", "FALLIDA"}:
+        if estado_global in {"COMPLETADA_EXITOSA", "COMPENSADA", "EN_DISPUTA", "FALLIDA"}:
             estado_final_alcanzado = True
             break
 
@@ -136,19 +149,31 @@ def probar_saga(modo: str):
 
     print(f"========================================================\n")
 
-    if modo == "exito" and saga_info.get("estado_global") == "COMPLETADA_EXITOSA":
-        print("[ÉXITO] La saga orquestada sobre los 3 microservicios completó satisfactoriamente.")
-    elif "compensar" in modo and saga_info.get("estado_global") == "COMPENSADA":
+    estado_final = saga_info.get("estado_global")
+    if modo == "exito" and estado_final == "COMPLETADA_EXITOSA":
+        print("[ÉXITO] La saga orquestada sobre los 4 microservicios completó satisfactoriamente.")
+    elif "compensar" in modo and estado_final == "COMPENSADA":
         print("[ÉXITO] El flujo compensatorio se ejecutó correctamente en orden inverso.")
+    elif modo == "disputa-wallet" and estado_final == "EN_DISPUTA":
+        print(
+            "[ÉXITO] La acreditación agotó sus reintentos y el trabajo quedó EN_DISPUTA "
+            "sin revertir el servicio ya prestado."
+        )
     else:
-        print(f"[OBSERVACIÓN] El estado final fue: {saga_info.get('estado_global')}")
+        print(f"[OBSERVACIÓN] El estado final fue: {estado_final}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Validar Saga Orquestada de Hogar de los Alpes")
     parser.add_argument(
         "--modo",
-        choices=["exito", "compensar-operaciones", "compensar-pago"],
+        choices=[
+            "exito",
+            "compensar-operaciones",
+            "compensar-pago",
+            "compensar-ejecucion",
+            "disputa-wallet",
+        ],
         default="exito",
         help="Modo de prueba de la saga",
     )

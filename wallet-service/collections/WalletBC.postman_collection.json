@@ -35,6 +35,16 @@
       "key": "billetera_temporal",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "proveedor_retiro",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "billetera_retiro",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -725,6 +735,216 @@
               "host": ["{{base_url}}"],
               "path": ["wallet", "billeteras", "{{billetera_temporal}}"]
             }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Retiro del proveedor",
+      "description": "`POST /proveedores/{proveedor_id}/wallet/retiros` identifica la billetera por el proveedor y no por su id contable: es la ruta que consume el BFF. El folder es autocontenido —crea su propia billetera y la elimina al final— para no alterar los saldos que verifican los demás folders.",
+      "item": [
+        {
+          "name": "Crear billetera para el retiro",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Billetera propia del folder: no toca los saldos del flujo principal.",
+                  "pm.collectionVariables.set('proveedor_retiro', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('billetera_retiro', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"proveedor_id\": \"{{proveedor_retiro}}\",\n  \"moneda\": \"COP\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/wallet/billeteras",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "billeteras"]
+            }
+          }
+        },
+        {
+          "name": "Acreditar saldo disponible",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('saldo = 100000', () => pm.expect(Number(pm.response.json().saldo)).to.eql(100000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monto\": \"100000.00\",\n  \"motivo\": \"PagoDeTrabajo\",\n  \"referencia_externa\": \"liquidacion-retiro\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/wallet/billeteras/{{billetera_retiro}}/acreditar",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "billeteras", "{{billetera_retiro}}", "acreditar"]
+            }
+          }
+        },
+        {
+          "name": "Retiro por proveedor",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('saldo = 70000', () => pm.expect(Number(pm.response.json().saldo)).to.eql(70000));",
+                  "pm.test('resuelve la billetera del proveedor', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('billetera_retiro')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monto\": \"30000.00\",\n  \"referencia_externa\": \"retiro-1\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/wallet/proveedores/{{proveedor_retiro}}/wallet/retiros",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "proveedores", "{{proveedor_retiro}}", "wallet", "retiros"]
+            },
+            "description": "El motivo por omisión es `RetiroAProveedor`, así que basta con el monto."
+          }
+        },
+        {
+          "name": "Retiro sin fondos suficientes → 409",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('explica el motivo', () => pm.expect(pm.response.json().detalle).to.include('excede'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monto\": \"999999.00\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/wallet/proveedores/{{proveedor_retiro}}/wallet/retiros",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "proveedores", "{{proveedor_retiro}}", "wallet", "retiros"]
+            }
+          }
+        },
+        {
+          "name": "Retiro de un proveedor sin billetera → 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 404', () => pm.response.to.have.status(404));",
+                  "pm.test('explica el motivo', () => pm.expect(pm.response.json().detalle).to.include('billetera'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monto\": \"1000.00\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/wallet/proveedores/{{$guid}}/wallet/retiros",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "proveedores", "{{$guid}}", "wallet", "retiros"]
+            }
+          }
+        },
+        {
+          "name": "Retirar el saldo restante",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('saldo en cero', () => pm.expect(Number(pm.response.json().saldo)).to.eql(0));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monto\": \"70000.00\",\n  \"referencia_externa\": \"retiro-2\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/wallet/proveedores/{{proveedor_retiro}}/wallet/retiros",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "proveedores", "{{proveedor_retiro}}", "wallet", "retiros"]
+            }
+          }
+        },
+        {
+          "name": "Eliminar la billetera del retiro",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wallet/billeteras/{{billetera_retiro}}",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "billeteras", "{{billetera_retiro}}"]
+            },
+            "description": "Solo procede con saldo cero, por eso se retiró todo antes."
           }
         }
       ]

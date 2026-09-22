@@ -42,16 +42,23 @@ services:
     volumes:
       - wallet_postgres_data:/var/lib/postgresql/data
 
-  # WalletBC: billeteras de proveedores. No usa Pulsar; sus eventos van al log.
+  # WalletBC: billeteras de proveedores. Participa en la saga como último paso:
+  # consume AcreditarProveedorV1 de `comandos-wallet` y responde en `eventos-wallet`
+  # con WalletAcreditadaV1 o AcreditacionFallidaV1. Sus eventos de dominio siguen
+  # yendo al log (el puerto MessageBroker aún usa el adaptador `logging`).
   wallet:
     build: ./wallet-service
     environment:
       DATABASE_URL: postgresql+psycopg://wallet:wallet@postgres:5432/wallet_db
+      PULSAR_URL: pulsar://pulsar:6650
+      PULSAR_CONSUMIR_COMANDOS_WALLET: "true"
       UVICORN_ROOT_PATH: /wallet
     ports:
       - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:8000:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      pulsar:
         condition: service_healthy
     restart: unless-stopped
 

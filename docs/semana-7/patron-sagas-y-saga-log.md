@@ -24,13 +24,14 @@ Esta decisión se sustenta en cuatro pilares arquitectónicos:
 
 ### 1.2 Microservicios Participantes en la Transacción
 
-La saga involucra 3 microservicios autónomos, cada uno gobernando su propia base de datos relacional y sus reglas de invariantes mediante arquitectura hexagonal:
+La saga involucra 4 microservicios autónomos, cada uno gobernando su propia base de datos relacional y sus reglas de invariantes mediante arquitectura hexagonal:
 
 | Microservicio (Bounded Context) | Capa / Dominio | Rol en la Saga | Agregado Involucrado |
 | :--- | :--- | :--- | :--- |
-| **`gestion-trabajos-service`** | Core Domain | **Orquestador y Coordinador:** Inicia la saga, persiste el trabajo preliminar, gobierna el Saga Log, emite comandos y cancela o confirma el trabajo. | `Trabajo` |
+| **`gestion-trabajos-service`** | Core Domain | **Orquestador y Coordinador:** Inicia la saga, persiste el trabajo preliminar, gobierna el Saga Log, emite comandos y cancela, confirma o pone en disputa el trabajo. | `Trabajo` |
 | **`pagos-service`** | Supporting / Fintech | **Custodia y Cobro Financiero:** Recibe comandos para autorizar/retener fondos y para ejecutar compensaciones de reverso. | `Pago` |
-| **`operaciones-service`** | Supporting / Logística | **Asignación Operativa:** Recibe comandos para asignar proveedores/partners certificados y para liberar asignaciones ante fallos. | `Partner` / `TrabajosDePartner` |
+| **`operaciones-service`** | Supporting / Logística | **Asignación y Ejecución Operativa:** Recibe comandos para asignar proveedores/partners certificados y para liberar asignaciones ante fallos, y reporta cómo terminó el trabajo en campo. | `Partner` / `TrabajosDePartner` |
+| **`wallet-service`** | Supporting / Fintech | **Liquidación al Proveedor:** Recibe el comando de acreditación, lo ejecuta en una transacción local con reintentos y responde con el resultado. | `Billetera` |
 
 ---
 
@@ -50,24 +51,36 @@ stateDiagram-v2
         ESPERANDO_PAGO --> PAGO_CONFIRMADO: Evento PagoAutorizado
         PAGO_CONFIRMADO --> ESPERANDO_ASIGNACION: Emitir AsignarProveedor
         ESPERANDO_ASIGNACION --> PROVEEDOR_ASIGNADO: Evento ProveedorAsignado
+        PROVEEDOR_ASIGNADO --> ESPERANDO_EJECUCION: El proveedor ejecuta en campo
+        ESPERANDO_EJECUCION --> TRABAJO_EJECUTADO: Evento EjecucionTrabajoCompletada
+        TRABAJO_EJECUTADO --> ESPERANDO_ACREDITACION: Emitir AcreditarProveedor
+        ESPERANDO_ACREDITACION --> PROVEEDOR_ACREDITADO: Evento WalletAcreditada
     }
 
     EN_PROCESO --> COMPLETADA_EXITOSA: Todos los pasos confirmados
     
     state COMPENSANDO {
+        [*] --> LIBERANDO_PASO_3: Fallo en Ejecución
+        LIBERANDO_PASO_3 --> REVERTIENDO_PASO_2: Evento AsignacionLiberada
         [*] --> REVERTIENDO_PASO_2: Fallo en Asignación
-        REVERTIENDO_PASO_2 --> REVERTIENDO_PASO_1: Emitir RevertirPago
+        REVERTIENDO_PASO_2 --> REVERTIENDO_PASO_1: Evento PagoRevertido
         REVERTIENDO_PASO_1 --> [*]: Cancelar Trabajo
     }
 
-    EN_PROCESO --> COMPENSANDO: PagoRechazado o AsignacionRechazada
+    EN_PROCESO --> COMPENSANDO: PagoRechazado, AsignacionRechazada o EjecucionFallida
     COMPENSANDO --> COMPENSADA: Compensaciones finalizadas
     COMPENSANDO --> FALLIDA: Error irrecuperable en compensación
 
+    EN_PROCESO --> EN_DISPUTA: AcreditacionFallida (paso 5, no compensable)
+
     COMPLETADA_EXITOSA --> [*]
     COMPENSADA --> [*]
+    EN_DISPUTA --> [*]
     FALLIDA --> [*]
 ```
+
+El paso 5 es el único que no admite compensación: para cuando se acredita, el trabajo
+físico ya se prestó. Por eso su fallo no lleva a `COMPENSANDO` sino a `EN_DISPUTA`.
 
 ### 2.2 Tópicos y Canales de Mensajería sobre Apache Pulsar
 
@@ -78,7 +91,9 @@ La comunicación asíncrona entre el orquestador y los servicios participantes s
 | `persistent://public/default/comandos-pago` | **Comando** | Orquestador | `pagos-service` | `AutorizarPagoTrabajoV1`, `RevertirPagoTrabajoV1` |
 | `persistent://public/default/eventos-pago` | **Evento** | `pagos-service` | Orquestador | `PagoTrabajoAutorizadoV1`, `PagoTrabajoRechazadoV1`, `PagoTrabajoRevertidoV1` |
 | `persistent://public/default/comandos-operaciones` | **Comando** | Orquestador | `operaciones-service` | `AsignarProveedorTrabajoV1`, `LiberarAsignacionProveedorV1` |
-| `persistent://public/default/eventos-operaciones` | **Evento** | `operaciones-service` | Orquestador | `ProveedorTrabajoAsignadoV1`, `AsignacionProveedorRechazadaV1`, `AsignacionProveedorLiberadaV1` |
+| `persistent://public/default/eventos-operaciones` | **Evento** | `operaciones-service` | Orquestador | `ProveedorTrabajoAsignadoV1`, `AsignacionProveedorRechazadaV1`, `AsignacionProveedorLiberadaV1`, `EjecucionTrabajoCompletadaV1`, `EjecucionTrabajoFallidaV1` |
+| `persistent://public/default/comandos-wallet` | **Comando** | Orquestador | `wallet-service` | `AcreditarProveedorV1` |
+| `persistent://public/default/eventos-wallet` | **Evento** | `wallet-service` | Orquestador | `WalletAcreditadaV1`, `AcreditacionFallidaV1` |
 
 Cada mensaje incluye en sus propiedades de cabecera: `command_type` / `event_type`, `saga_id` y `partition_key` (usando el `trabajo_id` para garantizar ordenamiento por partición).
 
@@ -98,6 +113,7 @@ sequenceDiagram
     participant Log as Saga Log (PostgreSQL)
     participant Pagos as PagosBC
     participant Ops as OperacionesBC
+    participant Wallet as WalletBC
 
     Cliente->>Orq: POST /sagas/activar-servicio
     Orq->>Log: registrar_inicio_saga (INICIADA)
@@ -128,14 +144,44 @@ sequenceDiagram
         Orq->>Log: registrar_paso_completado(3)
     end
 
+    rect rgb(255, 245, 250)
+        note over Orq, Ops: Paso 4: Ejecución en campo (sin comando)
+        Orq->>Log: registrar_paso_iniciado(4, EJECUTAR_TRABAJO)
+        Ops-->>Orq: Evento: EjecucionTrabajoCompletadaV1 (Pulsar)
+        Orq->>Log: registrar_paso_completado(4)
+    end
+
+    rect rgb(240, 255, 250)
+        note over Orq, Wallet: Paso 5: Liquidación al Proveedor
+        Orq->>Log: registrar_paso_iniciado(5, ACREDITAR_PROVEEDOR)
+        Orq->>Wallet: Comando: AcreditarProveedorV1 (Pulsar)
+        Wallet->>Wallet: UoW: acreditar saldo (idempotente por saga_id)
+        Wallet-->>Orq: Evento: WalletAcreditadaV1 (Pulsar)
+        Orq->>Log: registrar_paso_completado(5)
+    end
+
     rect rgb(235, 255, 235)
-        note over Orq, Log: Paso 4: Cierre Exitoso
-        Orq->>Orq: UoW: confirmar trabajo definitivo
+        note over Orq, Log: Cierre Exitoso
         Orq->>Log: finalizar_saga(COMPLETADA_EXITOSA)
     end
 ```
 
 ### 3.2 Flujo Compensatorio ante Fallos (Compensación en Orden Inverso)
+
+Cada fallo determina desde qué paso arranca el rollback semántico:
+
+| Fallo | Evento que lo anuncia | Compensaciones, en orden inverso | Estado final |
+| :--- | :--- | :--- | :--- |
+| Pago rechazado (paso 2) | `PagoTrabajoRechazadoV1` | `CancelarTrabajo` (local). Aún no hay asignación que liberar. | `COMPENSADA` |
+| Asignación rechazada (paso 3) | `AsignacionProveedorRechazadaV1` | `RevertirPagoTrabajoV1` → `CancelarTrabajo` | `COMPENSADA` |
+| Ejecución fallida (paso 4) | `EjecucionTrabajoFallidaV1` | `LiberarAsignacionProveedorV1` → `RevertirPagoTrabajoV1` → `CancelarTrabajo` | `COMPENSADA` |
+| Acreditación fallida (paso 5) | `AcreditacionFallidaV1` | **Ninguna.** El trabajo pasa a `EN_DISPUTA` | `EN_DISPUTA` |
+
+Cada compensación espera la confirmación de la anterior antes de emitir la siguiente: el
+reverso del pago solo se pide cuando OperacionesBC confirma `AsignacionProveedorLiberadaV1`,
+y el trabajo solo se cancela cuando PagosBC confirma `PagoTrabajoRevertidoV1`. Encadenarlas
+por confirmación —y no dispararlas en paralelo— es lo que evita las condiciones de carrera
+que justificaron elegir orquestación sobre coreografía.
 
 Demostración del rollback semántico cuando ocurre un fallo en el Paso 3 (`operaciones-service` sin disponibilidad de profesionales):
 
@@ -177,6 +223,60 @@ reverso. Solo procesa la compensación local y establece `COMPENSADA` cuando
 recibe `PagoTrabajoRevertidoV1` con `revertido=true`; si Pagos reporta un
 reverso fallido, el paso queda en `ERROR` y la saga termina en `FALLIDA`.
 
+### 3.3 Flujo `EN_DISPUTA`: la acreditación no se compensa
+
+El paso 5 rompe la simetría del patrón, y a propósito. Cuando WalletBC va a acreditar, el
+trabajo físico **ya se prestó**: el proveedor hizo la reparación y el cliente la recibió.
+Compensar la saga significaría cancelar ese trabajo y devolverle el dinero al cliente por un
+servicio que sí obtuvo, dejando además al proveedor sin cobrar lo que trabajó. La
+compensación sería técnicamente correcta y comercialmente inaceptable.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Orq as Orquestador (GestionTrabajos)
+    participant Log as Saga Log (PostgreSQL)
+    participant Wallet as WalletBC
+    participant Ops as Operaciones (humano)
+
+    note over Orq, Wallet: Pasos 1 a 4 completados: el trabajo ya se ejecutó
+    Orq->>Log: registrar_paso_iniciado(5, ACREDITAR_PROVEEDOR)
+    Orq->>Wallet: Comando: AcreditarProveedorV1 (Pulsar)
+
+    rect rgb(255, 245, 225)
+        note over Wallet: Reintentos con backoff exponencial
+        Wallet->>Wallet: Intento 1 → billetera bloqueada (espera 0,5 s)
+        Wallet->>Wallet: Intento 2 → billetera bloqueada (espera 1 s)
+        Wallet->>Wallet: Intento 3 → billetera bloqueada
+    end
+
+    Wallet-->>Orq: Evento: AcreditacionFallidaV1 (intentos=3)
+
+    rect rgb(255, 235, 215)
+        note over Orq, Log: Disputa, no compensación
+        Orq->>Log: registrar_paso_fallido(5, motivo)
+        Orq->>Orq: UoW: Trabajo.marcar_en_disputa(motivo)
+        Orq->>Log: registrar_paso_compensacion(5, ABRIR_DISPUTA_REVISION_MANUAL, COMPENSADO)
+        Orq->>Log: finalizar_saga(EN_DISPUTA, motivo)
+    end
+
+    Orq-->>Ops: Evento de integración: TrabajoEnDisputaV1
+    note over Ops: Resuelve a mano: cierra o cancela el trabajo
+```
+
+Detalles de la política:
+
+- **Los reintentos viven en WalletBC**, no en el orquestador: es quien sabe si el fallo es
+  transitorio (billetera bloqueada, caída puntual de la base) o permanente (el proveedor no
+  tiene billetera, la moneda no corresponde). Los permanentes no se reintentan.
+- **La acreditación es idempotente** por `saga:{saga_id}:acreditacion`, así que una
+  reentrega del comando no paga dos veces.
+- **`EN_DISPUTA` no es un estado final del agregado.** El trabajo sigue admitiendo cerrarse o
+  cancelarse: es el estado que espera la decisión de un humano, y el Saga Log conserva el
+  motivo y el número de intentos para que esa decisión tenga contexto.
+- **El Saga Log distingue tres finales**: `COMPLETADA_EXITOSA`, `COMPENSADA` y `EN_DISPUTA`.
+  El tercero no es un error técnico, es trabajo pendiente para Operaciones.
+
 ---
 
 ## 4. Persistencia y Auditoría con Saga Log
@@ -194,7 +294,7 @@ Registra la cabecera y el estado global de cada transacción:
 | `saga_id` | `UUID` | Unique, Index | Identificador global de trazabilidad de la transacción. |
 | `tipo_saga` | `VARCHAR(60)` | Not Null | Nombre del workflow (`SagaActivacionServicio`). |
 | `trabajo_id` | `UUID` | Index, Not Null | ID del agregado `Trabajo` asociado. |
-| `estado_global` | `VARCHAR(30)` | Index, Not Null | `INICIADA`, `EN_PROCESO`, `COMPENSANDO`, `COMPENSADA`, `COMPLETADA_EXITOSA`. |
+| `estado_global` | `VARCHAR(40)` | Index, Not Null | `INICIADA`, `EN_PROCESO`, `COMPENSANDO`, `COMPENSADA`, `EN_DISPUTA`, `COMPLETADA_EXITOSA`, `FALLIDA`. |
 | `paso_actual` | `VARCHAR(60)` | Not Null | Último paso registrado en el flujo. |
 | `payload_inicial`| `JSON` | Nullable | Datos iniciales recibidos al arrancar la saga. |
 | `error` | `TEXT` | Nullable | Detalle del error si la saga falló o fue compensada. |
@@ -254,7 +354,7 @@ WHERE estado_global = 'COMPLETADA_EXITOSA'
 GROUP BY tipo_saga;
 ```
 
-#### 3. Auditoría de transacciones compensadas y causas de fallo
+#### 3. Auditoría de transacciones compensadas, en disputa y causas de fallo
 ```sql
 SELECT 
     saga_id,
@@ -264,7 +364,7 @@ SELECT
     fecha_creacion,
     fecha_actualizacion
 FROM saga_instancias
-WHERE estado_global IN ('COMPENSADA', 'FALLIDA')
+WHERE estado_global IN ('COMPENSADA', 'EN_DISPUTA', 'FALLIDA')
 ORDER BY fecha_actualizacion DESC
 LIMIT 20;
 ```
@@ -274,7 +374,7 @@ LIMIT 20;
 ## 5. Guía de Reproducción de Pruebas
 
 ### 5.1 Prueba Unitaria Automatizada (Sin dependencias externas)
-Ejecuta la máquina de estados completa en memoria validando tanto el Happy Path como el camino con fallo y compensación en orden inverso:
+Ejecuta la máquina de estados completa en memoria validando el Happy Path de cinco pasos, las compensaciones en orden inverso (fallo en asignación y fallo en ejecución) y la política `EN_DISPUTA`:
 
 ```bash
 python3 gestion-trabajos-service/scripts/test_unitario_saga.py
@@ -283,15 +383,30 @@ python3 gestion-trabajos-service/scripts/test_unitario_saga.py
 ### 5.2 Prueba de Integración de Extremo a Extremo (con Docker Compose y Pulsar)
 Con el stack arriba (`docker compose up -d`):
 
+Desde `gestion-trabajos-service/`:
+
 ```bash
-# 1. Probar camino exitoso completo (GestionTrabajos -> Pagos -> Operaciones):
-python3 -m gestion-trabajos-service.scripts.probar_saga_orquestada --modo exito
+# 1. Camino exitoso completo (GestionTrabajos -> Pagos -> Operaciones -> Wallet):
+python3 -m scripts.probar_saga_orquestada --modo exito
 
-# 2. Probar fallo forzado en asignación de operaciones y compensación de pagos y trabajos:
-python3 -m gestion-trabajos-service.scripts.probar_saga_orquestada --modo compensar-operaciones
+# 2. Fallo forzado en la asignación y compensación de pagos y trabajos:
+python3 -m scripts.probar_saga_orquestada --modo compensar-operaciones
 
-# 3. Probar fallo forzado en pagos y compensación de trabajo:
-python3 -m gestion-trabajos-service.scripts.probar_saga_orquestada --modo compensar-pago
+# 3. Fallo forzado en pagos y compensación del trabajo:
+python3 -m scripts.probar_saga_orquestada --modo compensar-pago
+
+# 4. Fallo en la ejecución en campo: libera la asignación, revierte el pago y cancela:
+python3 -m scripts.probar_saga_orquestada --modo compensar-ejecucion
+
+# 5. Acreditación fallida: agota reintentos y deja el trabajo EN_DISPUTA sin revertir nada:
+python3 -m scripts.probar_saga_orquestada --modo disputa-wallet
+```
+
+Las pruebas de la transacción local de WalletBC (unidad de trabajo, idempotencia de la
+acreditación y backoff) corren sin Pulsar, desde `wallet-service/`:
+
+```bash
+DATABASE_URL="sqlite:///:memory:" python3 -m unittest discover -s tests
 ```
 
 ### 5.3 Consulta de la API REST del Saga Log

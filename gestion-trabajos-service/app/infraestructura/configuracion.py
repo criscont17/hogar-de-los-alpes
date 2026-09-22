@@ -60,6 +60,12 @@ PULSAR_TOPICO_EVENTOS_PAGO = _texto(
 PULSAR_TOPICO_EVENTOS_OPERACIONES = _texto(
     "PULSAR_TOPICO_EVENTOS_OPERACIONES", "persistent://public/default/eventos-operaciones"
 )
+PULSAR_TOPICO_COMANDOS_WALLET = _texto(
+    "PULSAR_TOPICO_COMANDOS_WALLET", "persistent://public/default/comandos-wallet"
+)
+PULSAR_TOPICO_EVENTOS_WALLET = _texto(
+    "PULSAR_TOPICO_EVENTOS_WALLET", "persistent://public/default/eventos-wallet"
+)
 PULSAR_SUSCRIPCION_SAGA = _texto("PULSAR_SUSCRIPCION_SAGA", "gestion-trabajos-saga")
 PULSAR_CONSUMIR_EVENTOS_SAGA = _booleano("PULSAR_CONSUMIR_EVENTOS_SAGA", True)
 

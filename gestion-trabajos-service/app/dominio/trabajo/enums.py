@@ -27,6 +27,9 @@ class EstadoTrabajo(str, Enum):
     EN_EJECUCION = "EnEjecucion"
     CERRADO = "Cerrado"
     CANCELADO = "Cancelado"
+    # El trabajo se ejecutó pero su liquidación quedó pendiente de resolver a mano.
+    # No es un estado final: Operaciones lo cierra o lo cancela al resolver la disputa.
+    EN_DISPUTA = "EnDisputa"
 
 
 class EstadoSubTrabajo(str, Enum):

@@ -25,7 +25,12 @@ Este directorio contiene la documentación técnica y evidencias correspondiente
    - Resultados cuantitativos (latencias, throughput, tiempos de recuperación) y cualitativos.
    - Validación final de cumplimiento de hipótesis.
 
-4. **[Refinamiento de Arquitectura TO-BE y Vistas Dinámicas](arquitectura-to-be-refinada.md)**
+4. **[Experimentos de los Escenarios de Calidad de la Saga](experimentos-escenarios-saga.md)**
+   - Protocolo de ejecución de los escenarios de elasticidad, disponibilidad y consistencia.
+   - Hipótesis, métricas y umbrales de cada escenario, con los comandos automatizados.
+   - Interpretación de resultados, amenazas a la validez y plantillas de tablas para el informe.
+
+5. **[Refinamiento de Arquitectura TO-BE y Vistas Dinámicas](arquitectura-to-be-refinada.md)**
    - Mapa de contextos acotados TO-BE actualizado: [`hda-context-map-to-be-refinado.cml`](hda-context-map-to-be-refinado.cml) (ContextMapper DSL) y su diagrama Mermaid.
    - Diagramas de secuencia del ciclo de vida de la Saga (Happy Path y Compensación).
    - Topología física y lógica de despliegue consolidada.
@@ -59,4 +64,3 @@ python3 -m gestion-trabajos-service.scripts.probar_saga_orquestada --modo compen
 # Probar compensación por rechazo en pago
 python3 -m gestion-trabajos-service.scripts.probar_saga_orquestada --modo compensar-pago
 ```
-

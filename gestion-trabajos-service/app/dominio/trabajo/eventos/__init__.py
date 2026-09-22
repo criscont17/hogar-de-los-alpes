@@ -8,6 +8,7 @@ from .sub_trabajo_iniciado import SubTrabajoIniciado
 from .trabajo_cancelado import TrabajoCancelado
 from .trabajo_cerrado import TrabajoCerrado
 from .trabajo_creado import TrabajoCreado
+from .trabajo_en_disputa import TrabajoEnDisputa
 from .trabajo_rediagnosticado import TrabajoRediagnosticado
 
 __all__ = [
@@ -23,5 +24,6 @@ __all__ = [
     "TrabajoCancelado",
     "TrabajoCerrado",
     "TrabajoCreado",
+    "TrabajoEnDisputa",
     "TrabajoRediagnosticado",
 ]

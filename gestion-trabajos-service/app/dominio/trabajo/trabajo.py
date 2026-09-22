@@ -26,6 +26,7 @@ from .eventos import (
     SubTrabajoIniciado,
     TrabajoCancelado,
     TrabajoCerrado,
+    TrabajoEnDisputa,
     TrabajoRediagnosticado,
 )
 from .identificadores import SubTrabajoId, TrabajoId
@@ -239,6 +240,32 @@ class Trabajo(AggregateRoot[TrabajoId]):
                 costo_total=self.costo_total.monto,
                 moneda=self.moneda,
                 liquidaciones=self._liquidaciones(),
+            )
+        )
+
+    def marcar_en_disputa(self, motivo: str) -> None:
+        """Abre una disputa sobre un trabajo ya ejecutado cuya liquidación falló.
+
+        No es una compensación: el servicio se prestó y cancelarlo dejaría al
+        proveedor sin respaldo de un trabajo que sí hizo. El trabajo queda a la
+        espera de que Operaciones lo resuelva, cerrándolo o cancelándolo a mano.
+        """
+
+        self._exigir_activo()
+        motivo = (motivo or "").strip()
+        if not motivo:
+            raise DatosDelTrabajoInvalidosError("El motivo de la disputa es obligatorio")
+        if self._estado is EstadoTrabajo.EN_DISPUTA:
+            return
+        anterior = self._estado
+        self._estado = EstadoTrabajo.EN_DISPUTA
+        self.add_domain_event(
+            TrabajoEnDisputa(
+                **self._origen_del_evento(),
+                motivo=motivo,
+                estado_anterior=anterior.value,
+                liquidaciones_pendientes=self._liquidaciones(),
+                moneda=self.moneda,
             )
         )
 

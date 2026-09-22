@@ -33,3 +33,8 @@ build/
 
 # Overrides locales de docker-compose (puertos ocupados en la máquina del desarrollador, etc.)
 docker-compose.override.yml
+
+# Salidas de los experimentos de calidad (--csv). La evidencia va al informe, no al repo.
+elasticidad-*.csv
+disponibilidad-*.csv
+consistencia-*.csv

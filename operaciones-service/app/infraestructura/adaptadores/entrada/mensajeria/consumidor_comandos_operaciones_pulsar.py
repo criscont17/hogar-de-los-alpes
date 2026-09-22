@@ -123,6 +123,12 @@ class ConsumidorComandosOperacionesPulsar:
                     },
                     partition_key=trabajo_id,
                 )
+                self._reportar_ejecucion(
+                    saga_id=saga_id,
+                    trabajo_id=trabajo_id,
+                    proveedor_id=proveedor_id,
+                    fallo=bool(payload.get("simular_fallo_ejecucion", False)),
+                )
 
         elif tipo_comando == "LiberarAsignacionProveedorV1":
             logger.info("Compensación: Liberar asignación para saga=%s trabajo=%s", saga_id, trabajo_id)
@@ -136,6 +142,43 @@ class ConsumidorComandosOperacionesPulsar:
                 },
                 partition_key=trabajo_id,
             )
+
+    def _reportar_ejecucion(
+        self, saga_id: str, trabajo_id: str, proveedor_id: str, fallo: bool
+    ) -> None:
+        """Reporta al orquestador cómo terminó el trabajo en campo.
+
+        En la POC el trabajo físico se simula: el proveedor asignado lo ejecuta de
+        inmediato. En producción este evento lo dispararía la confirmación del
+        proveedor (evidencias, cierre del sub-trabajo), no la asignación.
+        """
+
+        if fallo:
+            logger.warning(
+                "Simulando ejecución fallida para saga=%s trabajo=%s", saga_id, trabajo_id
+            )
+            self._emitir_evento(
+                tipo_evento="EjecucionTrabajoFallidaV1",
+                saga_id=saga_id,
+                payload={
+                    "trabajo_id": trabajo_id,
+                    "proveedor_id": proveedor_id,
+                    "motivo": "El proveedor no pudo ejecutar el trabajo en sitio (simulación de fallo)",
+                },
+                partition_key=trabajo_id,
+            )
+            return
+
+        self._emitir_evento(
+            tipo_evento="EjecucionTrabajoCompletadaV1",
+            saga_id=saga_id,
+            payload={
+                "trabajo_id": trabajo_id,
+                "proveedor_id": proveedor_id,
+                "estado": "EJECUTADO",
+            },
+            partition_key=trabajo_id,
+        )
 
     def _emitir_evento(
         self,

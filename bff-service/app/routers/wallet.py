@@ -8,8 +8,11 @@ router = APIRouter(prefix="/proveedores", tags=["Wallet"])
 
 @router.post("/{proveedor_id}/wallet/retiros")
 async def solicitar_retiro(proveedor_id: str, solicitud: RetiroWalletRequest):
-    """El proveedor_id es la billetera_id: en WalletBC cada proveedor tiene una sola billetera."""
-    respuesta = await clients.debitar_billetera(proveedor_id, solicitud.model_dump(mode="json", exclude_none=True))
+    """Retiro del saldo del proveedor. WalletBC resuelve cuál es su billetera."""
+
+    respuesta = await clients.retirar_de_proveedor(
+        proveedor_id, solicitud.model_dump(mode="json", exclude_none=True)
+    )
     if respuesta.status_code >= 400:
         raise HTTPException(status_code=respuesta.status_code, detail=clients.detalle_error(respuesta))
     return respuesta.json()

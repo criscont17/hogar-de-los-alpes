@@ -3,9 +3,9 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-from app.aplicacion.sagas.contratos_saga import SolicitudInicioSaga
+from app.aplicacion.sagas.contratos_saga import FALLOS_SIMULABLES, SolicitudInicioSaga
 from app.infraestructura import contenedor
 
 router = APIRouter(prefix="/sagas", tags=["Sagas"])
@@ -22,8 +22,22 @@ class SolicitudActivarServicioSchema(BaseModel):
     partner_id: str | None = Field(None, description="ID del partner si es canal B2B2C")
     referencia_externa: str | None = Field(None, description="Referencia propia del partner")
     simular_fallo_en_paso: str | None = Field(
-        None, description="Simulación controlada para pruebas de fallo/compensación: 'PAGO' o 'OPERACIONES'"
+        None,
+        description=(
+            "Simulación controlada para pruebas: 'PAGO' u 'OPERACIONES' disparan la "
+            "compensación en orden inverso; 'WALLET' agota los reintentos de la "
+            "acreditación y deja el trabajo EN_DISPUTA."
+        ),
     )
+
+    @field_validator("simular_fallo_en_paso")
+    @classmethod
+    def _validar_paso_simulado(cls, valor: str | None) -> str | None:
+        if valor is not None and valor not in FALLOS_SIMULABLES:
+            raise ValueError(
+                f"simular_fallo_en_paso debe ser uno de {', '.join(FALLOS_SIMULABLES)}"
+            )
+        return valor
 
 
 class RespuestaInicioSagaSchema(BaseModel):

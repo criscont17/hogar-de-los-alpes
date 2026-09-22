@@ -50,6 +50,7 @@ from app.infraestructura.configuracion import (
     MESSAGE_BROKER,
     PULSAR_TOPICO_COMANDOS_OPERACIONES,
     PULSAR_TOPICO_COMANDOS_PAGO,
+    PULSAR_TOPICO_COMANDOS_WALLET,
     PULSAR_TOPICO_EVENTOS,
     PULSAR_URL,
 )
@@ -106,6 +107,10 @@ def obtener_orquestador_saga() -> OrquestadorSagaTrabajo:
         command_publisher=publisher,
         topico_comandos_pago=PULSAR_TOPICO_COMANDOS_PAGO,
         topico_comandos_operaciones=PULSAR_TOPICO_COMANDOS_OPERACIONES,
+        topico_comandos_wallet=PULSAR_TOPICO_COMANDOS_WALLET,
+        # Los hechos del agregado (cancelación, disputa) salen por el mismo bus que
+        # los de la API REST, así que llegan a `eventos-trabajo` como los demás.
+        dispatcher=obtener_dispatcher(),
     )
 
 
