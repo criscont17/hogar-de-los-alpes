@@ -46,12 +46,26 @@ MercadoPago) detrás de un adaptador con capa anti-corrupción y circuit breaker
 demuestra el escenario de calidad de Interoperabilidad (#7). Consulte
 [`pagos-service/README.md`](pagos-service/README.md) y su colección Postman.
 
+## Implementación del BFF y la transacción distribuida (Saga)
+
+`bff-service/` es el **contrato público** del sistema: una fachada HTTP síncrona publicada por
+el gateway en `/api`. Traduce cada solicitud de negocio en llamadas hacia el orquestador de la
+saga y WalletBC; ningún cliente externo conoce Apache Pulsar ni la partición en microservicios.
+
+La transacción larga *Activación de Servicio* se implementó como **saga por orquestación**: el
+coordinador vive en GestionDeTrabajosBC (dueño del agregado `Trabajo`), persiste cada
+transición en un **Saga Log** (`saga_instancias` y `saga_pasos` en `trabajos_db`) y coordina a
+PagosBC y OperacionesBC con comandos y eventos por Pulsar, compensando en orden inverso ante
+un fallo. Consulte [`bff-service/README.md`](bff-service/README.md) y
+[`docs/semana-7/patron-sagas-y-saga-log.md`](docs/semana-7/patron-sagas-y-saga-log.md).
+
 ---
 
 ## 📋 Tabla de Contenido
 
 - [Contexto del Proyecto](#contexto-del-proyecto)
 - [Estructura del Proyecto](#estructura-del-proyecto)
+- [Escenarios de calidad](#escenarios-de-calidad)
 - [Despliegue con Docker y entrada pública](#despliegue-con-docker-y-entrada-pública)
 - [Dependencias e Instalación](#dependencias-e-instalación)
 - [Guía de Evaluación — Dónde encontrar cada entregable](#guía-de-evaluación--dónde-encontrar-cada-entregable)
@@ -108,18 +122,51 @@ hogar-de-los-alpes/
 │   └── app/                           # seedwork/ dominio/ aplicacion/ infraestructura/
 │                                      # (incluye acl_psp/: capa anti-corrupción por pasarela)
 │
+├── bff-service/                       # Backend For Frontend (contrato público /api)
+│   ├── README.md                      # Endpoints de agregación y activación de la saga
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── collections/                   # Colección Postman del BFF
+│   └── app/                           # main.py · clients.py · routers/
+│
 ├── gateway/                           # Entrada pública única (Nginx, puerto 80)
 │   ├── Dockerfile
-│   └── nginx.conf                     # Rutas /wallet, /trabajos, /operaciones y /pagos
+│   └── nginx.conf                     # Rutas /api (BFF), /wallet, /trabajos, /operaciones y /pagos
 │
-├── docker-compose.yml                 # Gateway, los cuatro servicios, sus bases y Apache Pulsar
+├── docker-compose.yml                 # Gateway, BFF, los cuatro servicios, sus bases y Apache Pulsar
 │
 └── docs/                              # Documentación de arquitectura y diseño
-    └── semana-2/                      # Entregables Semana 2: Diseño Estratégico DDD
-        ├── dominios-subdominios/      # Dominios, sub-dominios y vision statements (.cml)
-        ├── lenguaje-ubicuo/           # Diagramas e imágenes del lenguaje ubicuo
-        └── contextos-acotados/        # Mapa de contextos acotados (.cml)
+    ├── semana-2/                      # Entregables Semana 2: Diseño Estratégico DDD
+    │   ├── dominios-subdominios/      # Dominios, sub-dominios y vision statements (.cml)
+    │   ├── lenguaje-ubicuo/           # Diagramas e imágenes del lenguaje ubicuo
+    │   └── contextos-acotados/        # Mapa de contextos acotados AS-IS y TO-BE (.cml)
+    ├── semana-6/                      # Distribución de tareas del equipo
+    └── semana-7/                      # Entregables Semana 7: Sagas, Saga Log, BFF y experimentación
+        ├── hda-context-map-to-be-refinado.cml   # Mapa TO-BE refinado con lo implementado
+        ├── arquitectura-to-be-refinada.md       # Refinamiento y vistas dinámicas
+        ├── patron-sagas-y-saga-log.md           # Saga, máquina de estados y Saga Log
+        ├── backend-for-frontend-bff.md          # Contrato del BFF
+        ├── informe-experimentacion.md           # Resultados de experimentación
+        └── imagenes/                            # PNG de las vistas (mapa, saga, despliegue)
 ```
+
+## Escenarios de calidad
+
+Cada escenario está implementado en el servicio que lo motiva y se verifica con la colección
+Postman o el script que se indica. El detalle de hipótesis, método y métricas está en
+[`docs/semana-7/informe-experimentacion.md`](docs/semana-7/informe-experimentacion.md).
+
+| # | Atributo de calidad | Qué exige | Dónde está implementado | Cómo se verifica |
+|---|---|---|---|---|
+| **#3** | Modificabilidad | Integrar un partner B2B2C nuevo sin modificar ni redesplegar el core | ACL por formato y acuerdos como datos en `operaciones-service/` | Carpeta **05** de [`operaciones-service/collections/`](operaciones-service/collections/README.md): el mismo request pasa de 404 a 202 reconstruyendo **solo** OperacionesBC |
+| **#4** | Escalabilidad / Elasticidad | Absorber picos de demanda (hasta 4x siniestros) escalando horizontalmente | Suscripción `Shared` sobre `comandos-trabajo` en `gestion-trabajos-service/` | `python -m scripts.carga_escalabilidad --num 200`, con y sin la réplica del perfil `escalabilidad` |
+| **#7** | Interoperabilidad / Resiliencia (PSPs) | Que la caída de una pasarela de pago no arrastre a las demás | Un adaptador ACL y un circuit breaker por PSP en `pagos-service/` | Colección de [`pagos-service/collections/`](pagos-service/collections/README.md) |
+| **#9** | Interoperabilidad / Resiliencia (partners) | Traducir el formato de cada partner y aislar su caída, con recuperación automática | ACL, hilo y circuit breaker por partner en `operaciones-service/` | Carpetas **01 a 04** de [`operaciones-service/collections/`](operaciones-service/collections/README.md) |
+| **Sagas** | Consistencia eventual / Corrección transaccional | Que un fallo a mitad de la transacción no deje dinero retenido sin registro | Orquestador y Saga Log en `gestion-trabajos-service/app/aplicacion/sagas/` | `python -m scripts.probar_saga_orquestada --modo exito` y `--modo compensar-pago` / `--modo compensar-operaciones` |
+
+Los cinco se resumen, con su relación a cada refinamiento del mapa de contextos, en la tabla de
+trazabilidad de
+[`docs/semana-7/arquitectura-to-be-refinada.md`](docs/semana-7/arquitectura-to-be-refinada.md#4-trazabilidad-entre-refinamientos-y-experimentación).
 
 ---
 
@@ -335,6 +382,8 @@ ContextMapper es la herramienta usada para modelar dominios, sub-dominios y cont
 | Backend For Frontend (BFF) | `backend-for-frontend-bff.md` | [`docs/semana-7/backend-for-frontend-bff.md`](docs/semana-7/backend-for-frontend-bff.md) |
 | Informe Técnico de Experimentación | `informe-experimentacion.md` | [`docs/semana-7/informe-experimentacion.md`](docs/semana-7/informe-experimentacion.md) |
 | Refinamiento TO-BE y Vistas Dinámicas | `arquitectura-to-be-refinada.md` | [`docs/semana-7/arquitectura-to-be-refinada.md`](docs/semana-7/arquitectura-to-be-refinada.md) |
+| Mapa de contextos TO-BE refinado (ContextMapper DSL) | `hda-context-map-to-be-refinado.cml` | [`docs/semana-7/hda-context-map-to-be-refinado.cml`](docs/semana-7/hda-context-map-to-be-refinado.cml) |
+| Vistas exportadas como imagen (mapa, saga y despliegue) | PNG + `.mmd` | [`docs/semana-7/imagenes/`](docs/semana-7/imagenes/) |
 
 ---
 

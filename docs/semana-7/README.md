@@ -26,7 +26,7 @@ Este directorio contiene la documentación técnica y evidencias correspondiente
    - Validación final de cumplimiento de hipótesis.
 
 4. **[Refinamiento de Arquitectura TO-BE y Vistas Dinámicas](arquitectura-to-be-refinada.md)**
-   - Mapa de contextos acotados TO-BE actualizado (ContextMapper DSL y Mermaid).
+   - Mapa de contextos acotados TO-BE actualizado: [`hda-context-map-to-be-refinado.cml`](hda-context-map-to-be-refinado.cml) (ContextMapper DSL) y su diagrama Mermaid.
    - Diagramas de secuencia del ciclo de vida de la Saga (Happy Path y Compensación).
    - Topología física y lógica de despliegue consolidada.
 

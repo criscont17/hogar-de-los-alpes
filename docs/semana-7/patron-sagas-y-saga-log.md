@@ -75,10 +75,10 @@ La comunicación asíncrona entre el orquestador y los servicios participantes s
 
 | Tópico Pulsar | Tipo de Mensaje | Emisor | Consumidor | Propósito |
 | :--- | :---: | :---: | :---: | :--- |
-| `persistent://public/default/comandos-saga-pago` | **Comando** | Orquestador | `pagos-service` | `AutorizarPagoTrabajoV1`, `RevertirPagoTrabajoV1` |
-| `persistent://public/default/eventos-saga-pago` | **Evento** | `pagos-service` | Orquestador | `PagoTrabajoAutorizadoV1`, `PagoTrabajoRechazadoV1`, `PagoTrabajoRevertidoV1` |
-| `persistent://public/default/comandos-saga-operaciones` | **Comando** | Orquestador | `operaciones-service` | `AsignarProveedorTrabajoV1`, `LiberarAsignacionProveedorV1` |
-| `persistent://public/default/eventos-saga-operaciones` | **Evento** | `operaciones-service` | Orquestador | `ProveedorTrabajoAsignadoV1`, `AsignacionProveedorRechazadaV1`, `AsignacionProveedorLiberadaV1` |
+| `persistent://public/default/comandos-pago` | **Comando** | Orquestador | `pagos-service` | `AutorizarPagoTrabajoV1`, `RevertirPagoTrabajoV1` |
+| `persistent://public/default/eventos-pago` | **Evento** | `pagos-service` | Orquestador | `PagoTrabajoAutorizadoV1`, `PagoTrabajoRechazadoV1`, `PagoTrabajoRevertidoV1` |
+| `persistent://public/default/comandos-operaciones` | **Comando** | Orquestador | `operaciones-service` | `AsignarProveedorTrabajoV1`, `LiberarAsignacionProveedorV1` |
+| `persistent://public/default/eventos-operaciones` | **Evento** | `operaciones-service` | Orquestador | `ProveedorTrabajoAsignadoV1`, `AsignacionProveedorRechazadaV1`, `AsignacionProveedorLiberadaV1` |
 
 Cada mensaje incluye en sus propiedades de cabecera: `command_type` / `event_type`, `saga_id` y `partition_key` (usando el `trabajo_id` para garantizar ordenamiento por partición).
 
