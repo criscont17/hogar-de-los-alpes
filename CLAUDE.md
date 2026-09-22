@@ -64,6 +64,12 @@ cd gestion-trabajos-service && python3 -m scripts.probar_saga_orquestada --modo 
 # Escalabilidad #4: publica N comandos y mide latencia p50/p95/p99 hasta el evento de respuesta
 cd gestion-trabajos-service && python -m scripts.carga_escalabilidad --num 200
 
+# Escenarios de calidad de la saga (stack completo arriba; protocolo en
+# docs/semana-7/experimentos-escenarios-saga.md). Los tres solo usan la stdlib.
+cd gestion-trabajos-service && python -m scripts.carga_elasticidad_sagas --csv
+cd gestion-trabajos-service && python -m scripts.prueba_disponibilidad_pulsar --modo pausa|caida
+cd gestion-trabajos-service && python -m scripts.auditoria_consistencia_sagas --num 20
+
 # Inspeccionar Pulsar a mano
 cd gestion-trabajos-service && python -m scripts.escuchar_eventos --suscripcion pagos-bc --evento TrabajoCerrado
 cd gestion-trabajos-service && python -m scripts.publicar_comando CrearTrabajoV1 scripts/ejemplos/crear_trabajo.json

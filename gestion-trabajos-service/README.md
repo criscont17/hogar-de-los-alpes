@@ -460,6 +460,29 @@ python3 -m scripts.probar_saga_orquestada --modo compensar-ejecucion
 python3 -m scripts.probar_saga_orquestada --modo disputa-wallet
 ```
 
+### Experimentos de calidad sobre la saga
+
+Tres experimentos automatizados miden la saga desde afuera, por HTTP, con el stack
+completo arriba. Cada uno imprime sus métricas y un veredicto por hipótesis, y vuelca el
+detalle por saga con `--csv`. El protocolo, los umbrales y las amenazas a la validez están
+en [`docs/semana-7/experimentos-escenarios-saga.md`](../docs/semana-7/experimentos-escenarios-saga.md).
+
+```bash
+# Elasticidad: rampa de 1x a 4x la línea base de inicios de saga.
+# Mide aceptación HTTP (p50/p95/p99), latencia de la saga completa y tasa de saturación.
+python3 -m scripts.carga_elasticidad_sagas --csv
+
+# Disponibilidad: derriba Pulsar con sagas en tránsito y mide retenidas vs. recuperadas.
+# `pausa` conserva los ledgers (partición de red); `caida` los borra (standalone limpio).
+python3 -m scripts.prueba_disponibilidad_pulsar --modo pausa --csv
+python3 -m scripts.prueba_disponibilidad_pulsar --modo caida --num 20 --csv
+
+# Consistencia: sagas concurrentes con fallos aleatorios; audita Saga Log × PagosBC × WalletBC
+# y exige que `cobrado − acreditado − custodia` sea 0. Sale con código 1 si hay descuadre.
+python3 -m scripts.auditoria_consistencia_sagas --num 20 --csv
+python3 -m scripts.auditoria_consistencia_sagas --solo-auditar --limite 100
+```
+
 
 ## Flujo de prueba con Postman
 
