@@ -31,7 +31,7 @@ Este directorio contiene la documentación técnica y evidencias correspondiente
    - Interpretación de resultados, amenazas a la validez y plantillas de tablas para el informe.
 
 5. **[Refinamiento de Arquitectura TO-BE y Vistas Dinámicas](arquitectura-to-be-refinada.md)**
-   - Mapa de contextos acotados TO-BE actualizado (ContextMapper DSL y Mermaid).
+   - Mapa de contextos acotados TO-BE actualizado: [`hda-context-map-to-be-refinado.cml`](hda-context-map-to-be-refinado.cml) (ContextMapper DSL) y su diagrama Mermaid.
    - Diagramas de secuencia del ciclo de vida de la Saga (Happy Path y Compensación).
    - Topología física y lógica de despliegue consolidada.
 
@@ -64,4 +64,3 @@ python3 -m gestion-trabajos-service.scripts.probar_saga_orquestada --modo compen
 # Probar compensación por rechazo en pago
 python3 -m gestion-trabajos-service.scripts.probar_saga_orquestada --modo compensar-pago
 ```
-
