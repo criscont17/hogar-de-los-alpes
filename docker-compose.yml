@@ -1,0 +1,241 @@
+# Despliegue completo de Hogar de los Alpes.
+#
+# La única entrada pública es `gateway` (Nginx, puerto 80). Bases de datos, Pulsar y las
+# APIs directas quedan ligadas a 127.0.0.1: se usan desde la propia máquina (Postman,
+# scripts) pero no quedan expuestas en la VM aunque el security group se abra de más.
+# Use 127.0.0.1 y no `localhost` para llegar a esos puertos: al no haber listener IPv6,
+# los clientes que resuelven localhost intentan ::1 primero y pierden ~2 s por petición.
+# Para exponerlas a propósito: IP_PUERTOS_INTERNOS=0.0.0.0 docker compose up -d
+#
+# Cada API arranca con UVICORN_ROOT_PATH igual a su prefijo en el gateway, para que
+# Swagger funcione en /wallet/docs, /trabajos/docs, /operaciones/docs, /pagos/docs y
+# /api/docs (el BFF).
+
+services:
+  # Entrada pública única: enruta /wallet, /trabajos, /operaciones, /pagos y /api (BFF).
+  gateway:
+    build: ./gateway
+    ports:
+      - "${PUERTO_GATEWAY:-80}:80"
+    depends_on:
+      - wallet
+      - gestion-trabajos
+      - operaciones
+      - pagos
+      - bff
+    restart: unless-stopped
+
+  # Base propia de WalletBC.
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: wallet_db
+      POSTGRES_USER: wallet
+      POSTGRES_PASSWORD: wallet
+    ports:
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wallet -d wallet_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - wallet_postgres_data:/var/lib/postgresql/data
+
+  # WalletBC: billeteras de proveedores. Participa en la saga como último paso:
+  # consume AcreditarProveedorV1 de `comandos-wallet` y responde en `eventos-wallet`
+  # con WalletAcreditadaV1 o AcreditacionFallidaV1. Sus eventos de dominio siguen
+  # yendo al log (el puerto MessageBroker aún usa el adaptador `logging`).
+  wallet:
+    build: ./wallet-service
+    environment:
+      DATABASE_URL: postgresql+psycopg://wallet:wallet@postgres:5432/wallet_db
+      PULSAR_URL: pulsar://pulsar:6650
+      PULSAR_CONSUMIR_COMANDOS_WALLET: "true"
+      UVICORN_ROOT_PATH: /wallet
+    ports:
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pulsar:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Base propia de GestionDeTrabajosBC: cada bounded context es dueño de sus datos.
+  postgres-trabajos:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: trabajos_db
+      POSTGRES_USER: trabajos
+      POSTGRES_PASSWORD: trabajos
+    ports:
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trabajos -d trabajos_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - trabajos_postgres_data:/var/lib/postgresql/data
+
+  # Apache Pulsar en modo standalone para eventos y comandos entre bounded contexts.
+  # Arranca siempre con datos limpios: al reiniciar un standalone en Docker su bookie
+  # cambia de dirección y no puede recuperar los ledgers anteriores. Para la POC basta;
+  # los servicios vuelven a crear sus suscripciones al reconectarse.
+  pulsar:
+    image: apachepulsar/pulsar:4.0.13
+    command: ["bash", "-c", "rm -rf /pulsar/data/* && exec bin/pulsar standalone"]
+    ports:
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:6650:6650"
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "bin/pulsar-admin brokers healthcheck"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+
+  # GestionDeTrabajosBC desplegado junto a su base y Pulsar.
+  gestion-trabajos:
+    build: ./gestion-trabajos-service
+    environment:
+      DATABASE_URL: postgresql+psycopg://trabajos:trabajos@postgres-trabajos:5432/trabajos_db
+      MESSAGE_BROKER: pulsar
+      PULSAR_URL: pulsar://pulsar:6650
+      PULSAR_CONSUMIR_COMANDOS: "true"
+      PULSAR_CONSUMIR_EVENTOS_SAGA: "true"
+      UVICORN_ROOT_PATH: /trabajos
+    ports:
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:8001:8001"
+    depends_on:
+      postgres-trabajos:
+        condition: service_healthy
+      pulsar:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Segunda réplica de GestionDeTrabajosBC, solo para el experimento de escalabilidad
+  # (Escenario #4): comparte la misma base y la misma suscripción `Shared` sobre
+  # `comandos-trabajo` que la instancia principal, así que Pulsar reparte los comandos
+  # entre ambas sin ningún cambio de código. No arranca con `docker compose up` por
+  # defecto — requiere el perfil `escalabilidad`:
+  #   docker compose --profile escalabilidad up -d --build gestion-trabajos-2
+  #   python -m scripts.carga_escalabilidad --num 200   # correr dentro de gestion-trabajos-service
+  gestion-trabajos-2:
+    build: ./gestion-trabajos-service
+    profiles: ["escalabilidad"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://trabajos:trabajos@postgres-trabajos:5432/trabajos_db
+      MESSAGE_BROKER: pulsar
+      PULSAR_URL: pulsar://pulsar:6650
+      PULSAR_CONSUMIR_COMANDOS: "true"
+      PULSAR_CONSUMIR_EVENTOS_SAGA: "true"
+      UVICORN_ROOT_PATH: /trabajos
+    ports:
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:8004:8001"
+    depends_on:
+      postgres-trabajos:
+        condition: service_healthy
+      pulsar:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Base propia de OperacionesBC: partners, acuerdos comerciales y vista de sus trabajos.
+  postgres-operaciones:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: operaciones_db
+      POSTGRES_USER: operaciones
+      POSTGRES_PASSWORD: operaciones
+    ports:
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U operaciones -d operaciones_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - operaciones_postgres_data:/var/lib/postgresql/data
+
+  # OperacionesBC: partners B2B2C y capa anti-corrupción. Habla con GestionDeTrabajosBC
+  # solo por Pulsar (comando CrearTrabajoV1 y eventos de trabajo).
+  operaciones:
+    build: ./operaciones-service
+    environment:
+      DATABASE_URL: postgresql+psycopg://operaciones:operaciones@postgres-operaciones:5432/operaciones_db
+      MESSAGE_BROKER: pulsar
+      PULSAR_URL: pulsar://pulsar:6650
+      PULSAR_CONSUMIR_EVENTOS: "true"
+      PULSAR_CONSUMIR_COMANDOS_OPERACIONES: "true"
+      UVICORN_ROOT_PATH: /operaciones
+    ports:
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:8002:8002"
+    depends_on:
+      postgres-operaciones:
+        condition: service_healthy
+      pulsar:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Base propia de PagosBC: cada pago (cobro al cliente o pago a un proveedor) vive aquí.
+  postgres-pagos:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: pagos_db
+      POSTGRES_USER: pagos
+      POSTGRES_PASSWORD: pagos
+    ports:
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:5435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pagos -d pagos_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - pagos_postgres_data:/var/lib/postgresql/data
+
+  # PagosBC: cobros al cliente (checkout) y pagos a proveedores. Consume TrabajoCerradoV1
+  # de GestionDeTrabajosBC (Conformist) para liberar el pago de cada liquidación, y aísla
+  # cada PSP (Wompi, PayU, MercadoPago) detrás de un adaptador con su propio circuit
+  # breaker: la caída de un PSP nunca bloquea a los demás.
+  pagos:
+    build: ./pagos-service
+    environment:
+      DATABASE_URL: postgresql+psycopg://pagos:pagos@postgres-pagos:5432/pagos_db
+      MESSAGE_BROKER: pulsar
+      PULSAR_URL: pulsar://pulsar:6650
+      PULSAR_CONSUMIR_EVENTOS_TRABAJO: "true"
+      PULSAR_CONSUMIR_COMANDOS_PAGO: "true"
+      UVICORN_ROOT_PATH: /pagos
+    ports:
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:8003:8003"
+    depends_on:
+      postgres-pagos:
+        condition: service_healthy
+      pulsar:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # BFF: única puerta de entrada síncrona (HTTP REST) hacia las capacidades de negocio.
+  # Traduce peticiones externas en llamadas al orquestador de la saga (gestion-trabajos)
+  # y a WalletBC; no tiene base de datos propia ni lógica de dominio.
+  bff:
+    build: ./bff-service
+    environment:
+      URL_GESTION_TRABAJOS: http://gestion-trabajos:8001
+      URL_WALLET: http://wallet:8000
+      UVICORN_ROOT_PATH: /api
+    ports:
+      - "${IP_PUERTOS_INTERNOS:-127.0.0.1}:8005:8005"
+    depends_on:
+      - gestion-trabajos
+      - wallet
+    restart: unless-stopped
+
+
+volumes:
+  wallet_postgres_data:
+  trabajos_postgres_data:
+  operaciones_postgres_data:
+  pagos_postgres_data:

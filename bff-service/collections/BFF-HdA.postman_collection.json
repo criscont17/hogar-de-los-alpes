@@ -1,0 +1,242 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-e5f6-4789-a0b1-c2d3e4f5a6b7",
+    "name": "BFF-HdA — Hogar de los Alpes",
+    "description": "Colección del BFF: saga exitosa de punta a punta, saga que termina en compensación, consulta del Saga Log y retiro de wallet. Requiere el stack completo levantado (docker compose up -d).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Salud",
+      "item": [
+        {
+          "name": "Salud del BFF",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/salud",
+              "host": ["{{base_url}}"],
+              "path": ["salud"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Trabajos y Sagas",
+      "item": [
+        {
+          "name": "1. Iniciar saga (camino feliz)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cliente_id\": \"cliente-demo-001\",\n  \"descripcion\": \"Fuga de agua en cocina\",\n  \"pais\": \"CO\",\n  \"ciudad\": \"Bogotá\",\n  \"direccion\": \"Calle 100 # 15-20\",\n  \"moneda\": \"COP\",\n  \"monto_estimado\": 180000\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/trabajos/completar-servicio",
+              "host": ["{{base_url}}"],
+              "path": ["trabajos", "completar-servicio"]
+            },
+            "description": "Arranca la saga: crea el trabajo, retiene el pago y asigna proveedor. No debe recibir simular_fallo_en_paso."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('saga aceptada (202)', () => pm.response.to.have.status(202));",
+                  "const body = pm.response.json();",
+                  "pm.environment.set('saga_id', body.saga_id);",
+                  "pm.environment.set('trabajo_id', body.trabajo_id);"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "2. Consultar saga (camino feliz) — reintentar hasta ver COMPLETADA_EXITOSA",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/sagas/{{saga_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["sagas", "{{saga_id}}"]
+            },
+            "description": "El procesamiento es asíncrono (Pulsar): puede requerir un par de reintentos hasta que estado_global sea COMPLETADA_EXITOSA y los 3 pasos figuren en EXITOSO."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "3. Consultar estado del trabajo",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/trabajos/{{trabajo_id}}/estado",
+              "host": ["{{base_url}}"],
+              "path": ["trabajos", "{{trabajo_id}}", "estado"]
+            },
+            "description": "Agrega el estado del agregado Trabajo con el de su saga."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "4. Iniciar saga con fallo forzado en Pagos (compensación)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cliente_id\": \"cliente-demo-002\",\n  \"descripcion\": \"Instalación eléctrica\",\n  \"pais\": \"CO\",\n  \"ciudad\": \"Medellín\",\n  \"direccion\": \"Carrera 50 # 10-30\",\n  \"moneda\": \"COP\",\n  \"monto_estimado\": 250000,\n  \"simular_fallo_en_paso\": \"PAGO\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/trabajos/completar-servicio",
+              "host": ["{{base_url}}"],
+              "path": ["trabajos", "completar-servicio"]
+            },
+            "description": "simular_fallo_en_paso=PAGO fuerza el rechazo del pago; el orquestador debe compensar y cancelar el trabajo."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('saga aceptada (202)', () => pm.response.to.have.status(202));",
+                  "const body = pm.response.json();",
+                  "pm.environment.set('saga_id', body.saga_id);",
+                  "pm.environment.set('trabajo_id', body.trabajo_id);"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "5. Consultar saga compensada — reintentar hasta ver COMPENSADA",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/sagas/{{saga_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["sagas", "{{saga_id}}"]
+            },
+            "description": "estado_global debe terminar en COMPENSADA, con los pasos previos marcados COMPENSADO en orden inverso."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "6. Listar sagas recientes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/sagas?limite=20",
+              "host": ["{{base_url}}"],
+              "path": ["sagas"],
+              "query": [{ "key": "limite", "value": "20" }]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Wallet",
+      "item": [
+        {
+          "name": "Solicitar retiro",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monto\": 20000,\n  \"motivo\": \"RetiroAProveedor\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/proveedores/{{proveedor_id}}/wallet/retiros",
+              "host": ["{{base_url}}"],
+              "path": ["proveedores", "{{proveedor_id}}", "wallet", "retiros"]
+            },
+            "description": "proveedor_id debe ser el id de una billetera existente en WalletBC (ver colección WalletBC para crear/consultar una)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    }
+  ]
+}

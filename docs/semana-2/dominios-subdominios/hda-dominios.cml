@@ -1,0 +1,126 @@
+/* =================================================================
+ * Hogar de los Alpes (HdA) — Dominios y Sub-dominios
+ * Proyecto MISO 2026-14 · Semana 2 · Diseño Estratégico con DDD
+ * -----------------------------------------------------------------
+ * Arquitectos: Strangler Team
+ * Herramienta: ContextMapper DSL
+ * -----------------------------------------------------------------
+ * TIPOS DE SUB-DOMINIO UTILIZADOS
+ *   CORE_DOMAIN       — Ventaja competitiva; lógica compleja; desarrollo in-house.
+ *   SUPPORTING_DOMAIN — Soporta la operación; lógica simple/transaccional; in-house u outsourcing.
+ *   GENERIC_SUBDOMAIN — Capacidad estándar del mercado; sin diferenciación; compra o open-source.
+ * =================================================================
+ */
+
+/* ---------------------------------------------------------------
+ * DOMINIO 1: Servicios para el hogar
+ * --------------------------------------------------------------- */
+Domain ServiciosParaElHogar {
+    domainVisionStatement "Conectar a los hogares que necesitan resolver un problema -o contratar un servicio recurrente- con profesionales de confianza, verificados y calificados, orquestando el ciclo de vida completo del trabajo tanto para clientes del marketplace (B2C) como para los siniestros e instalaciones creados por aseguradoras, bancos y comercios (B2B2C)."
+
+    /* Solicitud de servicios · Búsqueda de proveedores · Cotizaciones · Selección del proveedor
+     * Argumento: es la capa de conversión (de intención a Job), y su calidad afecta la tasa de
+     * abandono del embudo, pero no crea costos de cambio (switching costs) para el cliente ni
+     * para el proveedor. Un competidor puede montar un chatbot de diagnóstico razonablemente
+     * bueno en semanas apoyándose en un LLM comercial; lo que no puede copiar rápido es la red
+     * de proveedores verificados a la que ese chatbot conecta. Por eso el valor está aguas
+     * abajo, no aquí. */
+    Subdomain Marketplace {
+        type = SUPPORTING_DOMAIN
+        domainVisionStatement "Guiar al propietario de hogar, mediante un asistente conversacional, en la solicitud de servicios: diagnóstico del problema, búsqueda de proveedores acreditados, comparación de cotizaciones y selección del proveedor, produciendo un trabajo (Job) bien especificado que es entregado a Gestión de trabajos para su ejecución."
+    }
+
+    /* Registro · Verificación · Acreditación · Reputación
+     * Argumento: el foso defensivo no es el software de verificación en sí, sino las relaciones
+     * operativas acumuladas con entidades certificadoras, cámaras de comercio y fuentes de
+     * antecedentes en cada ciudad -y pronto en cada país-. Replicar esto exige tiempo y
+     * negociación institucional, no solo ingeniería, lo que lo hace difícil de igualar
+     * rápidamente por un competidor con más presupuesto pero sin ese historial. */
+    Subdomain GestionDeProveedores {
+        type = CORE_DOMAIN
+        domainVisionStatement "Registrar, verificar y acreditar a los proveedores -personas naturales y empresas- mediante acceso a sistemas externos (antecedentes judiciales, registros mercantiles, entidades certificadoras), y mantener actualizada su reputación para proteger la seguridad de los hogares, siendo esta rigurosidad la principal diferenciación de HdA en el mercado."
+    }
+
+    /* Ejecución · Seguimiento · Novedades · Disputas
+     * Argumento: es el único subdominio que debe reconciliar dos orígenes de Job completamente
+     * distintos (marketplace y partners B2B2C) bajo un mismo modelo de ejecución consistente.
+     * Un error de orquestación aquí no solo genera mala experiencia: en trabajos de siniestros
+     * puede traducirse en incumplimiento de SLA contractual con un partner, con consecuencias
+     * comerciales y legales directas. Es el subdominio con mayor costo de falla. */
+    Subdomain GestionDeTrabajos {
+        type = CORE_DOMAIN
+        domainVisionStatement "Administrar el ciclo de vida completo de todo trabajo -creado por el marketplace o por un partner B2B2C- construyendo dinámicamente el flujo adecuado de sub-trabajos (orden, paralelismo y actividades bloqueantes), gestionando novedades, re-diagnósticos y disputas, y manteniendo un estado consistente para todas las partes involucradas."
+    }
+
+    /* Siniestros · Instalaciones · Reglas de partners · Integraciones
+     * Argumento: más allá del volumen (70%), este subdominio existe porque HdA ahora es
+     * subsidiaria de una aseguradora -su propio principal cliente B2B2C-. Esa integración
+     * vertical es una barrera que un competidor independiente no puede replicar con dinero:
+     * no tiene una aseguradora propia empujándole flujo garantizado de siniestros día a día. */
+    Subdomain SiniestrosEInstalacionesB2B2C {
+        type = CORE_DOMAIN
+        domainVisionStatement "Integrar y operar los trabajos de siniestros e instalaciones creados por más de 30 partners (aseguradoras, bancos y comercios), respetando las reglas, SLAs y pasos de aprobación propios de cada uno, y sosteniendo millones de requests diarios con elasticidad ante picos de eventos climáticos."
+    }
+
+    /* Suscripciones · Programación · Renovaciones
+     * Argumento: hoy, tal como está descrito, es esencialmente un motor de facturación
+     * recurrente con calendarización -una capacidad que existe en cualquier plataforma de
+     * suscripciones del mercado-. Se convertiría en Core solo si HdA decide explotar algo que
+     * un proveedor de suscripciones genérico no tiene: la base de proveedores ya verificados.
+     * Mientras esa integración no exista como ventaja explícita, se mantiene como soporte. */
+    Subdomain ServiciosRecurrentes {
+        type = SUPPORTING_DOMAIN
+        domainVisionStatement "Administrar los servicios recurrentes del hogar bajo un modelo de suscripción (empleadas domésticas, limpieza, jardinería): definición de planes, programación periódica y renovaciones, con una dinámica de negocio distinta a la de los trabajos puntuales del marketplace."
+    }
+
+    /* Negociación de partners · Onboarding de nuevos socios · Condiciones comerciales
+     * Argumento: distinto de "Reglas de partner" (que vive en SiniestrosEInstalacionesB2B2C y
+     * ejecuta técnicamente lo ya pactado). Aquí vive la relación comercial/contractual en sí:
+     * negociar, incorporar y renegociar condiciones con aseguradoras, bancos y comercios. El
+     * propio organigrama del documento separa esta responsabilidad de Siniestros: vive bajo el
+     * CRO (Alianzas B2B2C, Expansión regional), no bajo el CTO. No es Core porque la ventaja de
+     * HdA no está en negociar contratos -eso lo hace cualquier equipo comercial-, sino en lo
+     * que ese contrato le permite ejecutar después (orquestación, verificación, reglas). */
+    Subdomain AlianzasComerciales {
+        type = SUPPORTING_DOMAIN
+        domainVisionStatement "Gestionar las relaciones comerciales y contractuales con los partners B2B2C (aseguradoras, bancos y comercios): negociación, onboarding de nuevos socios y definición de condiciones comerciales, como paso previo y separado del motor de reglas técnicas que ejecuta esas condiciones una vez pactadas."
+    }
+
+}
+
+/* ---------------------------------------------------------------
+ * DOMINIO 2: Fintech
+ * --------------------------------------------------------------- */
+Domain Fintech {
+    domainVisionStatement "Democratizar el acceso a servicios financieros para los proveedores independientes de HdA -muchos sin historial bancario formal- ofreciendo pagos, billetera digital y crédito basado en el historial de trabajos completados en la plataforma."
+
+    /* Argumento: procesar pagos implica licenciamiento y cumplimiento regulatorio distinto en
+     * cada país (Colombia, México, Brasil, Argentina). Construirlo in-house no solo no aporta
+     * diferenciación, sino que añade riesgo regulatorio y retrasa la entrada a cada mercado.
+     * Rentar esta capacidad a un PSP licenciado localmente es la decisión más rápida y segura,
+     * no solo la más barata. */
+    Subdomain Pagos {
+        type = GENERIC_SUBDOMAIN
+        domainVisionStatement "Procesar de forma segura los pagos de clientes a proveedores, retenidos en custodia hasta la finalización del trabajo, apoyándose en pasarelas de pago estándar de la industria disponibles en cada país de operación."
+    }
+
+    /* Argumento: es la capa de experiencia sobre el dinero del proveedor (saldo, movimientos,
+     * retiros), pero la lógica de negocio ahí es genérica de cualquier wallet del mercado.
+     * Podría, en teoría, sustituirse por un proveedor de wallet-as-a-service sin afectar el
+     * negocio central, siempre que se preserve la trazabilidad del historial hacia Crédito. */
+    Subdomain Wallet {
+        type = SUPPORTING_DOMAIN
+        domainVisionStatement "Ofrecer a los proveedores independientes una billetera digital para recibir y administrar los pagos de los trabajos completados, con operaciones estándar de consulta de saldo, movimientos y retiros."
+    }
+
+    /* Argumento: la defensibilidad no viene solo de tener historial de pagos -eso lo tiene
+     * cualquier PSP-, sino de cruzar ese historial con la calidad del trabajo (calificaciones,
+     * disputas, cumplimiento de SLA) que vive en Gestión de proveedores. Ese cruce de datos de
+     * comportamiento operativo + financiero es el insumo que ningún scoring fintech genérico
+     * puede reconstruir sin ser, a su vez, un marketplace de servicios del hogar. */
+    Subdomain Credito {
+        type = CORE_DOMAIN
+        domainVisionStatement "Construir un modelo de scoring crediticio alternativo a partir del historial de trabajos completados, cumplimiento de SLAs y calificaciones recibidas en la plataforma, habilitando micro-préstamos para proveedores sin historial bancario tradicional. Constituye un activo de datos único e inimitable por competidores fintech genéricos."
+    }
+
+}

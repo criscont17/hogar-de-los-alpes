@@ -1,0 +1,1480 @@
+{
+  "info": {
+    "_postman_id": "9b1e7c42-5d3a-4f86-a2c1-7e0d4b8f6a13",
+    "name": "Escenarios de calidad — OperacionesBC y GestionDeTrabajosBC",
+    "description": "Demuestra los escenarios de Interoperabilidad (#9) y Modificabilidad (#3).\n\nOperacionesBC (8002) recibe a los partners y GestionDeTrabajosBC (8001) orquesta los trabajos; solo se comunican por Apache Pulsar.\n\n- Carpetas **01 a 04**: ejecútelas juntas y en orden con el Collection Runner.\n- Carpeta **05**: por partes, antes y después de agregar el adaptador (ver su descripción).\n\nAntes de ejecutar, levante todo desde la raíz del repositorio:\n\n    docker compose up -d --build --wait gestion-trabajos operaciones",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_operaciones",
+      "value": "http://127.0.0.1:8002",
+      "type": "string"
+    },
+    {
+      "key": "base_trabajos",
+      "value": "http://127.0.0.1:8001",
+      "type": "string"
+    },
+    {
+      "key": "numero_siniestro",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "seguros_trabajo_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "seguros_plomeria_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "id_orden",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "banco_trabajo_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "order_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "numero_plan_invalido",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "id_orden_tope",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "numero_flujo_invalido",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cs_referencia",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cs_trabajo_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "01 Partners y acuerdos comerciales",
+      "item": [
+        {
+          "name": "Partners con acuerdo y adaptador",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('los tres partners iniciales', () => ['seguros-alpes', 'banco-andino', 'muebles-hogar'].forEach(p => pm.expect(pm.response.json().map(p => p.partner_id)).to.include(p)));",
+                  "pm.test('todos con adaptador', () => pm.response.json().filter(p => p.partner_id !== 'cooperativa-sur').forEach(p => pm.expect(p.tiene_adaptador).to.eql(true)));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_operaciones}}/partners",
+              "host": [
+                "{{base_operaciones}}"
+              ],
+              "path": [
+                "partners"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Acuerdo comercial de Seguros de los Alpes",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json();",
+                  "pm.test('tope del plan PLUS', () => pm.expect(Number(p.condiciones.find(c => c.tipo === 'TOPE' && c.clave === 'PLUS').valor)).to.eql(4000000));",
+                  "pm.test('red homologada', () => pm.expect(p.red_de_proveedores.length).to.eql(2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_operaciones}}/partners/seguros-alpes",
+              "host": [
+                "{{base_operaciones}}"
+              ],
+              "path": [
+                "partners",
+                "seguros-alpes"
+              ]
+            },
+            "description": "Las reglas del partner son datos del agregado `Partner` (AcuerdoComercial → CondicionComercial), no código del adaptador."
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Interoperabilidad: traducción de formatos",
+      "item": [
+        {
+          "name": "Seguros de los Alpes (REST propio) → crear siniestro",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('numero_siniestro', 'SA-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 202', () => pm.response.to.have.status(202));",
+                  "const r = pm.response.json();",
+                  "pm.test('responde en su formato', () => pm.expect(r.numeroSiniestro).to.eql(pm.collectionVariables.get('numero_siniestro')));",
+                  "pm.test('estado RECIBIDO', () => pm.expect(r.estado).to.eql('RECIBIDO'));",
+                  "pm.test('tope del acuerdo', () => pm.expect(Number(r.topePoliza)).to.eql(4000000));",
+                  "pm.test('SLA del acuerdo', () => pm.expect(r.slaHoras).to.eql(24));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_operaciones}}/partners/seguros-alpes/trabajos",
+              "host": [
+                "{{base_operaciones}}"
+              ],
+              "path": [
+                "partners",
+                "seguros-alpes",
+                "trabajos"
+              ]
+            },
+            "description": "El adaptador traduce el formato; el acuerdo del partner resuelve tope, red y SLA; OperacionesBC envía `CrearTrabajoV1` por Pulsar.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numeroSiniestro\": \"{{numero_siniestro}}\",\n  \"poliza\": {\n    \"numero\": \"H-88231\",\n    \"plan\": \"PLUS\"\n  },\n  \"prioridad\": \"ALTA\",\n  \"descripcionSiniestro\": \"Calentador estalló y humedeció el muro\",\n  \"predio\": {\n    \"pais\": \"CO\",\n    \"ciudad\": \"Bogota\",\n    \"direccion\": \"Cra 7 # 45-10\"\n  },\n  \"coberturas\": [\n    {\n      \"codigo\": \"COB-PLOM\",\n      \"detalle\": \"Reparar tubería del calentador\"\n    },\n    {\n      \"codigo\": \"COB-PINT\",\n      \"detalle\": \"Resanar y pintar muro\",\n      \"requiereTerminar\": [\n        \"COB-PLOM\"\n      ]\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Seguros → reintento idempotente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('misma solicitud', () => pm.expect(pm.response.json().numeroSiniestro).to.eql(pm.collectionVariables.get('numero_siniestro')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_operaciones}}/partners/seguros-alpes/trabajos",
+              "host": [
+                "{{base_operaciones}}"
+              ],
+              "path": [
+                "partners",
+                "seguros-alpes",
+                "trabajos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numeroSiniestro\": \"{{numero_siniestro}}\",\n  \"poliza\": {\n    \"numero\": \"H-88231\",\n    \"plan\": \"PLUS\"\n  },\n  \"prioridad\": \"ALTA\",\n  \"descripcionSiniestro\": \"Calentador estalló y humedeció el muro\",\n  \"predio\": {\n    \"pais\": \"CO\",\n    \"ciudad\": \"Bogota\",\n    \"direccion\": \"Cra 7 # 45-10\"\n  },\n  \"coberturas\": [\n    {\n      \"codigo\": \"COB-PLOM\",\n      \"detalle\": \"Reparar tubería del calentador\"\n    },\n    {\n      \"codigo\": \"COB-PINT\",\n      \"detalle\": \"Resanar y pintar muro\",\n      \"requiereTerminar\": [\n        \"COB-PLOM\"\n      ]\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Seguros → consultar estado con su número",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// GestionDeTrabajosBC crea el trabajo de forma asíncrona y OperacionesBC lo proyecta desde sus eventos.",
+                  "setTimeout(() => {}, 3000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test('GestionDeTrabajosBC ya creó el trabajo', () => pm.expect(r.idTrabajoHdA).to.be.a('string'));",
+                  "pm.collectionVariables.set('seguros_trabajo_id', r.idTrabajoHdA);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_operaciones}}/partners/seguros-alpes/trabajos/{{numero_siniestro}}",
+              "host": [
+                "{{base_operaciones}}"
+              ],
+              "path": [
+                "partners",
+                "seguros-alpes",
+                "trabajos",
+                "{{numero_siniestro}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Vista canónica en GestionDeTrabajosBC",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "const sub = c => t.sub_trabajos.find(s => s.categoria === c);",
+                  "pm.collectionVariables.set('seguros_plomeria_id', sub('Plomeria').id);",
+                  "pm.test('canal Partner', () => pm.expect(t.partner_id).to.eql('seguros-alpes'));",
+                  "pm.test('condiciones resueltas por OperacionesBC', () => pm.expect([Number(t.monto_maximo), t.sla_horas]).to.eql([4000000, 24]));",
+                  "pm.test('requiereTerminar se volvió dependencia', () => pm.expect(sub('Pintura').estado).to.eql('Bloqueado'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_trabajos}}/trabajos/{{seguros_trabajo_id}}",
+              "host": [
+                "{{base_trabajos}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{seguros_trabajo_id}}"
+              ]
+            },
+            "description": "El core no sabe de pólizas ni coberturas: solo ve el trabajo canónico y sus condiciones."
+          }
+        },
+        {
+          "name": "Banco Andino (SOAP) → crear orden",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('id_orden', 'BA-MX-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 202', () => pm.response.to.have.status(202));",
+                  "pm.test('responde SOAP', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('text/xml'));",
+                  "pm.test('estado RECIBIDA', () => pm.expect(pm.response.text()).to.include('<ba:Estado>RECIBIDA</ba:Estado>'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/xml"
+              }
+            ],
+            "url": {
+              "raw": "{{base_operaciones}}/partners/banco-andino/trabajos",
+              "host": [
+                "{{base_operaciones}}"
+              ],
+              "path": [
+                "partners",
+                "banco-andino",
+                "trabajos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:ba=\"urn:bancoandino:hogar:v3\">\n  <soapenv:Body>\n    <ba:SolicitudOrdenServicio>\n      <ba:IdOrden>{{id_orden}}</ba:IdOrden>\n      <ba:NivelUrgencia>2</ba:NivelUrgencia>\n      <ba:Resumen>Remodelación de cocina con fuga previa</ba:Resumen>\n      <ba:Inmueble pais=\"MX\" ciudad=\"Ciudad de Mexico\">Av. Paseo de la Reforma 222</ba:Inmueble>\n      <ba:TopeAutorizado moneda=\"MXN\">25000.00</ba:TopeAutorizado>\n      <ba:Actividades>\n        <ba:Actividad etapa=\"1\" oficio=\"FONTANERIA\">Reparar tubería de la tarja</ba:Actividad>\n        <ba:Actividad etapa=\"2\" oficio=\"AZULEJO\">Cambiar azulejo del piso</ba:Actividad>\n        <ba:Actividad etapa=\"2\" oficio=\"ELECTRICIDAD\">Reubicar contactos</ba:Actividad>\n        <ba:Actividad etapa=\"3\" oficio=\"CARPINTERIA\">Instalar gabinetes</ba:Actividad>\n      </ba:Actividades>\n    </ba:SolicitudOrdenServicio>\n  </soapenv:Body>\n</soapenv:Envelope>"
+            }
+          }
+        },
+        {
+          "name": "Banco → consultar estado (SOAP)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// GestionDeTrabajosBC crea el trabajo de forma asíncrona y OperacionesBC lo proyecta desde sus eventos.",
+                  "setTimeout(() => {}, 3000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const xml = pm.response.text();",
+                  "pm.test('registrada en HdA', () => pm.expect(xml).to.include('<ba:Estado>REGISTRADA</ba:Estado>'));",
+                  "pm.test('etapas convertidas en 4 actividades', () => pm.expect(xml).to.include('<ba:ActividadesTotales>4</ba:ActividadesTotales>'));",
+                  "pm.collectionVariables.set('banco_trabajo_id', (xml.match(/<ba:FolioHdA>([^<]+)<\\/ba:FolioHdA>/) || [])[1]);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_operaciones}}/partners/banco-andino/trabajos/{{id_orden}}",
+              "host": [
+                "{{base_operaciones}}"
+              ],
+              "path": [
+                "partners",
+                "banco-andino",
+                "trabajos",
+                "{{id_orden}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Muebles del Hogar (webhook) → solicitar instalación",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('order_id', 'MH-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 202', () => pm.response.to.have.status(202));",
+                  "pm.test('status received', () => pm.expect(pm.response.json().status).to.eql('received'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_operaciones}}/partners/muebles-hogar/trabajos",
+              "host": [
+                "{{base_operaciones}}"
+              ],
+              "path": [
+                "partners",
+                "muebles-hogar",
+                "trabajos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event\": \"installation.requested\",\n  \"order_id\": \"{{order_id}}\",\n  \"priority\": \"express\",\n  \"customer_address\": {\n    \"country\": \"CO\",\n    \"city\": \"Medellin\",\n    \"line1\": \"Calle 10 # 43-20\"\n  },\n  \"items\": [\n    {\n      \"sku\": \"COC-INT-01\",\n      \"name\": \"Cocina integral\",\n      \"services\": [\n        \"plumbing_disconnect\",\n        \"electrical_disconnect\",\n        \"carpentry_install\",\n        \"paint_touchup\"\n      ]\n    },\n    {\n      \"sku\": \"CLO-02\",\n      \"name\": \"Closet\",\n      \"services\": [\n        \"carpentry_install\"\n      ]\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Muebles → consultar instalación",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// GestionDeTrabajosBC crea el trabajo de forma asíncrona y OperacionesBC lo proyecta desde sus eventos.",
+                  "setTimeout(() => {}, 3000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test('status scheduled', () => pm.expect(r.status).to.eql('scheduled'));",
+                  "pm.test('cinco pasos', () => pm.expect(r.steps.length).to.eql(5));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_operaciones}}/partners/muebles-hogar/trabajos/{{order_id}}",
+              "host": [
+                "{{base_operaciones}}"
+              ],
+              "path": [
+                "partners",
+                "muebles-hogar",
+                "trabajos",
+                "{{order_id}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Interoperabilidad: falla de un partner",
+      "item": [
+        {
+          "name": "Simular caída del core de Seguros",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('core caído', () => pm.expect(pm.response.json().core_disponible).to.eql(false));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_operaciones}}/partners/seguros-alpes/simulacion",
+              "host": [
+                "{{base_operaciones}}"
+              ],
+              "path": [
+                "partners",
+                "seguros-alpes",
+                "simulacion"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"disponible\": false\n}"
+            }
+          }
+        },
+        {
+          "name": "Asignar proveedor en GestionDeTrabajosBC con el partner caído",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('el core no espera al partner', () => pm.expect(pm.response.responseTime).to.be.below(1000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_trabajos}}/trabajos/{{seguros_trabajo_id}}/sub-trabajos/{{seguros_plomeria_id}}/asignar",
+              "host": [
+                "{{base_trabajos}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{seguros_trabajo_id}}",
+                "sub-trabajos",
+                "{{seguros_plomeria_id}}",
+                "asignar"
+              ]
+            },
+            "description": "GestionDeTrabajosBC ni siquiera conoce al partner: publica `ProveedorAsignadoV1` y sigue.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"proveedor_id\": \"5f0c3a52-8d1e-4d7b-9a10-3c1a7e2b9d01\",\n  \"monto_cotizado\": \"350000.00\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Salud de Seguros: sincronización degradada",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// El evento viaja por Pulsar a OperacionesBC, que intenta entregarlo al partner.",
+                  "setTimeout(() => {}, 3000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test('la novedad queda pendiente', () => pm.expect(s.pendientes).to.be.at.least(1));",
+                  "pm.test('se registró la degradación', () => pm.expect(s.degradaciones).to.be.at.least(1));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_operaciones}}/partners/seguros-alpes/salud",
+              "host": [
+                "{{base_operaciones}}"
+              ],
+              "path": [
+                "partners",
+                "seguros-alpes",
+                "salud"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Cancelar la orden del Banco en GestionDeTrabajosBC",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_trabajos}}/trabajos/{{banco_trabajo_id}}/cancelar",
+              "host": [
+                "{{base_trabajos}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{banco_trabajo_id}}",
+                "cancelar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"motivo\": \"El cliente desistió de la remodelación\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Salud del Banco: no se degradó",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// El evento viaja por Pulsar y se entrega al banco.",
+                  "setTimeout(() => {}, 3000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test('circuito cerrado', () => pm.expect(s.circuito).to.eql('Cerrado'));",
+                  "pm.test('sin pendientes', () => pm.expect(s.pendientes).to.eql(0));",
+                  "pm.test('recibió la cancelación', () => pm.expect(s.sincronizados).to.be.at.least(1));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_operaciones}}/partners/banco-andino/salud",
+              "host": [
+                "{{base_operaciones}}"
+              ],
+              "path": [
+                "partners",
+                "banco-andino",
+                "salud"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Restaurar el core de Seguros",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_operaciones}}/partners/seguros-alpes/simulacion",
+              "host": [
+                "{{base_operaciones}}"
+              ],
+              "path": [
+                "partners",
+                "seguros-alpes",
+                "simulacion"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"disponible\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Salud de Seguros: recuperación automática",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Espera el tiempo de recuperación del circuito (PARTNER_CB_RECUPERACION_SEGUNDOS=10).",
+                  "setTimeout(() => {}, 12000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test('entregó lo pendiente', () => pm.expect(s.pendientes).to.eql(0));",
+                  "pm.test('circuito cerrado otra vez', () => pm.expect(s.circuito).to.eql('Cerrado'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_operaciones}}/partners/seguros-alpes/salud",
+              "host": [
+                "{{base_operaciones}}"
+              ],
+              "path": [
+                "partners",
+                "seguros-alpes",
+                "salud"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Reglas del acuerdo y rechazos",
+      "item": [
+        {
+          "name": "Plan de póliza no pactado → 400",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('numero_plan_invalido', 'SA-DOR-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 400', () => pm.response.to.have.status(400));",
+                  "pm.test('explica el motivo', () => pm.expect(pm.response.json().detalle).to.include('no pacta'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_operaciones}}/partners/seguros-alpes/trabajos",
+              "host": [
+                "{{base_operaciones}}"
+              ],
+              "path": [
+                "partners",
+                "seguros-alpes",
+                "trabajos"
+              ]
+            },
+            "description": "El acuerdo comercial rechaza lo que no se pactó; no se envía nada a GestionDeTrabajosBC.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numeroSiniestro\": \"{{numero_plan_invalido}}\",\n  \"poliza\": {\n    \"numero\": \"H-88231\",\n    \"plan\": \"DORADO\"\n  },\n  \"prioridad\": \"ALTA\",\n  \"descripcionSiniestro\": \"Calentador estalló y humedeció el muro\",\n  \"predio\": {\n    \"pais\": \"CO\",\n    \"ciudad\": \"Bogota\",\n    \"direccion\": \"Cra 7 # 45-10\"\n  },\n  \"coberturas\": [\n    {\n      \"codigo\": \"COB-PLOM\",\n      \"detalle\": \"Reparar tubería del calentador\"\n    },\n    {\n      \"codigo\": \"COB-PINT\",\n      \"detalle\": \"Resanar y pintar muro\",\n      \"requiereTerminar\": [\n        \"COB-PLOM\"\n      ]\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Tope de la orden mayor al pactado → 409",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('id_orden_tope', 'BA-TOPE-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('explica el motivo', () => pm.expect(pm.response.json().detalle).to.include('supera el pactado'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/xml"
+              }
+            ],
+            "url": {
+              "raw": "{{base_operaciones}}/partners/banco-andino/trabajos",
+              "host": [
+                "{{base_operaciones}}"
+              ],
+              "path": [
+                "partners",
+                "banco-andino",
+                "trabajos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:ba=\"urn:bancoandino:hogar:v3\">\n  <soapenv:Body>\n    <ba:SolicitudOrdenServicio>\n      <ba:IdOrden>{{id_orden_tope}}</ba:IdOrden>\n      <ba:NivelUrgencia>2</ba:NivelUrgencia>\n      <ba:Resumen>Remodelación de cocina con fuga previa</ba:Resumen>\n      <ba:Inmueble pais=\"MX\" ciudad=\"Ciudad de Mexico\">Av. Paseo de la Reforma 222</ba:Inmueble>\n      <ba:TopeAutorizado moneda=\"MXN\">60000.00</ba:TopeAutorizado>\n      <ba:Actividades>\n        <ba:Actividad etapa=\"1\" oficio=\"FONTANERIA\">Reparar tubería de la tarja</ba:Actividad>\n        <ba:Actividad etapa=\"2\" oficio=\"AZULEJO\">Cambiar azulejo del piso</ba:Actividad>\n        <ba:Actividad etapa=\"2\" oficio=\"ELECTRICIDAD\">Reubicar contactos</ba:Actividad>\n        <ba:Actividad etapa=\"3\" oficio=\"CARPINTERIA\">Instalar gabinetes</ba:Actividad>\n      </ba:Actividades>\n    </ba:SolicitudOrdenServicio>\n  </soapenv:Body>\n</soapenv:Envelope>"
+            }
+          }
+        },
+        {
+          "name": "Partner no registrado → 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_operaciones}}/partners/aseguradora-desconocida/trabajos",
+              "host": [
+                "{{base_operaciones}}"
+              ],
+              "path": [
+                "partners",
+                "aseguradora-desconocida",
+                "trabajos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cualquier\": \"cosa\"\n}"
+            }
+          }
+        },
+        {
+          "name": "GestionDeTrabajosBC aplica la red del acuerdo → 409",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('explica el motivo', () => pm.expect(pm.response.json().detalle).to.include('red permitida'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_trabajos}}/trabajos/{{seguros_trabajo_id}}/sub-trabajos/{{seguros_plomeria_id}}/asignar",
+              "host": [
+                "{{base_trabajos}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{seguros_trabajo_id}}",
+                "sub-trabajos",
+                "{{seguros_plomeria_id}}",
+                "asignar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"proveedor_id\": \"22222222-2222-4222-8222-222222222222\",\n  \"monto_cotizado\": \"100000.00\"\n}"
+            }
+          }
+        },
+        {
+          "name": "GestionDeTrabajosBC aplica el tope del acuerdo → 409",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('explica el motivo', () => pm.expect(pm.response.json().detalle).to.include('monto máximo'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_trabajos}}/trabajos/{{seguros_trabajo_id}}/sub-trabajos/{{seguros_plomeria_id}}/asignar",
+              "host": [
+                "{{base_trabajos}}"
+              ],
+              "path": [
+                "trabajos",
+                "{{seguros_trabajo_id}}",
+                "sub-trabajos",
+                "{{seguros_plomeria_id}}",
+                "asignar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"proveedor_id\": \"5f0c3a52-8d1e-4d7b-9a10-3c1a7e2b9d01\",\n  \"monto_cotizado\": \"999999999.00\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Solicitud con flujo inválido → 202",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('numero_flujo_invalido', 'SA-FLU-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 202', () => pm.response.to.have.status(202));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_operaciones}}/partners/seguros-alpes/trabajos",
+              "host": [
+                "{{base_operaciones}}"
+              ],
+              "path": [
+                "partners",
+                "seguros-alpes",
+                "trabajos"
+              ]
+            },
+            "description": "La cobertura exige terminar una cobertura que no viene: OperacionesBC la acepta y GestionDeTrabajosBC la rechaza al crear.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numeroSiniestro\": \"{{numero_flujo_invalido}}\",\n  \"poliza\": {\n    \"numero\": \"H-88231\",\n    \"plan\": \"PLUS\"\n  },\n  \"prioridad\": \"ALTA\",\n  \"descripcionSiniestro\": \"Calentador estalló y humedeció el muro\",\n  \"predio\": {\n    \"pais\": \"CO\",\n    \"ciudad\": \"Bogota\",\n    \"direccion\": \"Cra 7 # 45-10\"\n  },\n  \"coberturas\": [\n    {\n      \"codigo\": \"COB-PLOM\",\n      \"detalle\": \"Reparar tubería del calentador\"\n    },\n    {\n      \"codigo\": \"COB-PINT\",\n      \"detalle\": \"Resanar y pintar muro\",\n      \"requiereTerminar\": [\n        \"COB-XXX\"\n      ]\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "El rechazo asíncrono llega al partner",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// GestionDeTrabajosBC publica CreacionDeTrabajoRechazadaV1 y OperacionesBC lo proyecta.",
+                  "setTimeout(() => {}, 3000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test('estado RECHAZADO', () => pm.expect(r.estado).to.eql('RECHAZADO'));",
+                  "pm.test('con el motivo', () => pm.expect(r.motivoRechazo).to.include('no existe'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_operaciones}}/partners/seguros-alpes/trabajos/{{numero_flujo_invalido}}",
+              "host": [
+                "{{base_operaciones}}"
+              ],
+              "path": [
+                "partners",
+                "seguros-alpes",
+                "trabajos",
+                "{{numero_flujo_invalido}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 Modificabilidad: onboarding de un partner nuevo",
+      "description": "Escenario de Modificabilidad #3. Se ejecuta por partes, NO junto con las demás carpetas:\n\n1. **05.1** con el sistema tal como está: el partner da 404.\n2. **05.2**: registra el acuerdo por API (sin código); sin adaptador sigue dando 404.\n3. Copie `operaciones-service/ejemplos/onboarding/cooperativa_sur.py` a `app/infraestructura/adaptadores/acl_partners/`, regístrelo en `registro.py` y reconstruya SOLO OperacionesBC: `docker compose up -d --build --wait operaciones`.\n4. **05.3**: el mismo request da 202 y GestionDeTrabajosBC crea el trabajo sin haber cambiado ni reiniciado.",
+      "item": [
+        {
+          "name": "05.1 Antes del onboarding (espera 404)",
+          "item": [
+            {
+              "name": "Cooperativa Sur no está registrada → 404",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.collectionVariables.set('cs_referencia', 'CS-' + Date.now());"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('responde 404', () => pm.response.to.have.status(404));",
+                      "pm.test('explica el motivo', () => pm.expect(pm.response.json().detalle).to.include('no está registrado'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "text/plain"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_operaciones}}/partners/cooperativa-sur/trabajos",
+                  "host": [
+                    "{{base_operaciones}}"
+                  ],
+                  "path": [
+                    "partners",
+                    "cooperativa-sur",
+                    "trabajos"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{cs_referencia}}|Buenos Aires|Av. Corrientes 1234|URGENTE|PLOM>ELEC+PINT"
+                }
+              }
+            },
+            {
+              "name": "Partners (sin la cooperativa)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                      "pm.test('la cooperativa no aparece', () => pm.expect(pm.response.json().map(p => p.partner_id)).to.not.include('cooperativa-sur'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_operaciones}}/partners",
+                  "host": [
+                    "{{base_operaciones}}"
+                  ],
+                  "path": [
+                    "partners"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "05.2 Onboarding contractual (acuerdo por API)",
+          "item": [
+            {
+              "name": "Registrar el acuerdo de Cooperativa Sur (sin código)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('registrado o renegociado', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                      "pm.test('aún sin adaptador', () => pm.expect(pm.response.json().tiene_adaptador).to.eql(false));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_operaciones}}/partners/cooperativa-sur",
+                  "host": [
+                    "{{base_operaciones}}"
+                  ],
+                  "path": [
+                    "partners",
+                    "cooperativa-sur"
+                  ]
+                },
+                "description": "Onboarding contractual: el acuerdo son datos del agregado `Partner`.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"nombre\": \"Cooperativa Sur\",\n  \"pais\": \"AR\",\n  \"red_de_proveedores\": null,\n  \"condiciones\": [\n    {\n      \"tipo\": \"TOPE\",\n      \"clave\": \"ORDEN\",\n      \"valor\": \"800000\"\n    },\n    {\n      \"tipo\": \"SLA\",\n      \"clave\": \"URGENTE\",\n      \"valor\": 24\n    },\n    {\n      \"tipo\": \"SLA\",\n      \"clave\": \"NORMAL\",\n      \"valor\": 72\n    }\n  ]\n}"
+                }
+              }
+            },
+            {
+              "name": "Con acuerdo pero sin adaptador → 404",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.collectionVariables.set('cs_referencia', 'CS-' + Date.now());"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('responde 404', () => pm.response.to.have.status(404));",
+                      "pm.test('explica el motivo', () => pm.expect(pm.response.json().detalle).to.include('adaptador'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "text/plain"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_operaciones}}/partners/cooperativa-sur/trabajos",
+                  "host": [
+                    "{{base_operaciones}}"
+                  ],
+                  "path": [
+                    "partners",
+                    "cooperativa-sur",
+                    "trabajos"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{cs_referencia}}|Buenos Aires|Av. Corrientes 1234|URGENTE|PLOM>ELEC+PINT"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "05.3 Después de agregar el adaptador (espera 202)",
+          "item": [
+            {
+              "name": "Partners (con la cooperativa integrada)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                      "pm.test('la cooperativa tiene adaptador', () => pm.expect(pm.response.json().find(p => p.partner_id === 'cooperativa-sur').tiene_adaptador).to.eql(true));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_operaciones}}/partners",
+                  "host": [
+                    "{{base_operaciones}}"
+                  ],
+                  "path": [
+                    "partners"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Cooperativa Sur crea una orden en texto plano → 202",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.collectionVariables.set('cs_referencia', 'CS-' + Date.now());"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('responde 202', () => pm.response.to.have.status(202));",
+                      "pm.test('responde en texto plano', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('text/plain'));",
+                      "pm.test('estado RECIBIDA', () => pm.expect(pm.response.text()).to.include('|RECIBIDA|'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "text/plain"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_operaciones}}/partners/cooperativa-sur/trabajos",
+                  "host": [
+                    "{{base_operaciones}}"
+                  ],
+                  "path": [
+                    "partners",
+                    "cooperativa-sur",
+                    "trabajos"
+                  ]
+                },
+                "description": "El mismo request que antes daba 404. Entre uno y otro solo se registró un acuerdo y se agregó un adaptador en OperacionesBC.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{cs_referencia}}|Buenos Aires|Av. Corrientes 1234|URGENTE|PLOM>ELEC+PINT"
+                }
+              }
+            },
+            {
+              "name": "Reintento de la misma orden → 200",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('responde 200', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "text/plain"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_operaciones}}/partners/cooperativa-sur/trabajos",
+                  "host": [
+                    "{{base_operaciones}}"
+                  ],
+                  "path": [
+                    "partners",
+                    "cooperativa-sur",
+                    "trabajos"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{cs_referencia}}|Buenos Aires|Av. Corrientes 1234|URGENTE|PLOM>ELEC+PINT"
+                }
+              }
+            },
+            {
+              "name": "La cooperativa consulta su orden",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "// GestionDeTrabajosBC crea el trabajo de forma asíncrona y OperacionesBC lo proyecta desde sus eventos.",
+                      "setTimeout(() => {}, 3000);"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                      "pm.test('registrada en GestionDeTrabajosBC', () => pm.expect(pm.response.text()).to.include('|REGISTRADA|0/3|'));",
+                      "pm.collectionVariables.set('cs_trabajo_id', pm.response.text().split('|')[4]);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_operaciones}}/partners/cooperativa-sur/trabajos/{{cs_referencia}}",
+                  "host": [
+                    "{{base_operaciones}}"
+                  ],
+                  "path": [
+                    "partners",
+                    "cooperativa-sur",
+                    "trabajos",
+                    "{{cs_referencia}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Vista canónica en GestionDeTrabajosBC (sin cambios en el core)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                      "const t = pm.response.json();",
+                      "const sub = c => t.sub_trabajos.find(s => s.categoria === c);",
+                      "pm.test('Partner en Argentina', () => pm.expect([t.canal, t.pais, t.moneda]).to.eql(['Partner', 'AR', 'ARS']));",
+                      "pm.test('condiciones del acuerdo nuevo', () => pm.expect([Number(t.monto_maximo), t.sla_horas]).to.eql([800000, 24]));",
+                      "pm.test('plomería primero', () => pm.expect(sub('Plomeria').estado).to.eql('Pendiente'));",
+                      "pm.test('electricidad y pintura en paralelo después', () => pm.expect([sub('Electricidad').estado, sub('Pintura').estado]).to.eql(['Bloqueado', 'Bloqueado']));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_trabajos}}/trabajos/{{cs_trabajo_id}}",
+                  "host": [
+                    "{{base_trabajos}}"
+                  ],
+                  "path": [
+                    "trabajos",
+                    "{{cs_trabajo_id}}"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
