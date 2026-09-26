@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from app.aplicacion.errores import FalloSimuladoDeAcreditacionError
-from app.aplicacion.eventos import despachar_eventos_pendientes
+from app.aplicacion.eventos import (
+    anunciar_hechos,
+    encolar_eventos_pendientes,
+    registrar_hechos,
+)
 from app.aplicacion.puertos import DomainEventDispatcher, UnidadDeTrabajo
 from app.dominio.billetera import Billetera, Dinero
 from app.dominio.errores import (
@@ -78,9 +82,10 @@ class ProcesadorComandosSagaWallet:
         referencia = self.referencia(saga_id)
         rechazada: Billetera | None = None
         intentos_gastados = 0
+        hechos: tuple = ()
 
         def intento(numero: int) -> Billetera:
-            nonlocal rechazada, intentos_gastados
+            nonlocal rechazada, intentos_gastados, hechos
             intentos_gastados = numero
             with self._fabrica_uow() as uow:
                 billetera = uow.billeteras.obtener_por_proveedor_id(proveedor_id)
@@ -108,6 +113,7 @@ class ProcesadorComandosSagaWallet:
                     rechazada = billetera
                     raise
                 uow.billeteras.guardar(billetera)
+                hechos = encolar_eventos_pendientes(billetera, uow)
                 uow.confirmar()
                 return billetera
 
@@ -127,7 +133,7 @@ class ProcesadorComandosSagaWallet:
             )
             if rechazada is not None:
                 # El rechazo no movió el saldo, pero el hecho sí debe observarse.
-                despachar_eventos_pendientes(rechazada, self._dispatcher)
+                registrar_hechos(rechazada, self._fabrica_uow(), self._dispatcher)
             return ResultadoAcreditacionSaga(
                 trabajo_id=trabajo_id,
                 proveedor_id=proveedor_id,
@@ -136,7 +142,7 @@ class ProcesadorComandosSagaWallet:
                 motivo=str(exc),
             )
 
-        despachar_eventos_pendientes(billetera, self._dispatcher)
+        anunciar_hechos(hechos, self._dispatcher)
         return ResultadoAcreditacionSaga(
             trabajo_id=trabajo_id,
             proveedor_id=proveedor_id,

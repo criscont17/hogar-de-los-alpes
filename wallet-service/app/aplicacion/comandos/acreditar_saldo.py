@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from app.aplicacion.dtos import BilleteraDTO
-from app.aplicacion.eventos import despachar_eventos_pendientes
+from app.aplicacion.eventos import anunciar_hechos, encolar_eventos_pendientes
 from app.aplicacion.mapeo import billetera_a_dto
 from app.aplicacion.puertos import DomainEventDispatcher, UnidadDeTrabajo
 from app.dominio.billetera import BilleteraId, Dinero, MotivoMovimiento
@@ -37,6 +37,7 @@ class AcreditarSaldoHandler:
                 comando.referencia_externa,
             )
             uow.billeteras.guardar(billetera)
+            hechos = encolar_eventos_pendientes(billetera, uow)
             uow.confirmar()
-        despachar_eventos_pendientes(billetera, self._dispatcher)
+        anunciar_hechos(hechos, self._dispatcher)
         return billetera_a_dto(billetera)
