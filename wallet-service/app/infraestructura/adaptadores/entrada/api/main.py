@@ -16,6 +16,7 @@ from app.infraestructura import contenedor
 from app.infraestructura.adaptadores.entrada.mensajeria import ConsumidorComandosWalletPulsar
 from app.infraestructura.adaptadores.salida.persistencia.db import crear_tablas
 from app.infraestructura.configuracion import (
+    OUTBOX_HABILITADO,
     PULSAR_CONSUMIR_COMANDOS_WALLET,
     PULSAR_SUSCRIPCION_COMANDOS_WALLET,
     PULSAR_TOPICO_COMANDOS_WALLET,
@@ -27,6 +28,7 @@ from app.infraestructura.semilla import sembrar_billeteras
 from app.seedwork.dominio import DomainError
 
 from .rutas_billetera import router
+from .rutas_outbox import router as router_outbox
 from .rutas_proveedor_wallet import router as router_proveedor
 
 logger = logging.getLogger("wallet.api")
@@ -39,6 +41,13 @@ def crear_app(*, inicializar_db: bool = True, iniciar_mensajeria: bool = True) -
             crear_tablas()
             if SEMBRAR_BILLETERAS:
                 sembrar_billeteras()
+
+        publicador_outbox = None
+        if iniciar_mensajeria and OUTBOX_HABILITADO:
+            # Arranca antes que el consumidor: si quedaron eventos de una ejecución
+            # anterior, salen apenas el servicio vuelve.
+            publicador_outbox = contenedor.obtener_publicador_outbox()
+            publicador_outbox.iniciar()
 
         consumidor_comandos = None
         if iniciar_mensajeria and PULSAR_CONSUMIR_COMANDOS_WALLET:
@@ -62,6 +71,10 @@ def crear_app(*, inicializar_db: bool = True, iniciar_mensajeria: bool = True) -
         finally:
             if consumidor_comandos is not None:
                 consumidor_comandos.detener()
+            if publicador_outbox is not None:
+                # Se detiene después del consumidor: lo último que entró todavía
+                # tiene una pasada para salir antes de apagar.
+                publicador_outbox.detener()
             if iniciar_mensajeria:
                 contenedor.reiniciar()
 
@@ -72,6 +85,7 @@ def crear_app(*, inicializar_db: bool = True, iniciar_mensajeria: bool = True) -
     )
     application.include_router(router)
     application.include_router(router_proveedor)
+    application.include_router(router_outbox)
 
     @application.exception_handler(BilleteraNoEncontradaError)
     async def no_encontrada(_: Request, exc: BilleteraNoEncontradaError):

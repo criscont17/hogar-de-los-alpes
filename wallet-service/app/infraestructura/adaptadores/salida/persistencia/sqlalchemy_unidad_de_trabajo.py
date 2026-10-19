@@ -10,6 +10,7 @@ from app.dominio.errores import BilleteraDuplicadaError
 
 from .db import SessionLocal
 from .sqlalchemy_billetera_repository import SqlAlchemyBilleteraRepository
+from .sqlalchemy_repositorio_eventos_salientes import SqlAlchemyRepositorioEventosSalientes
 
 
 class SqlAlchemyUnidadDeTrabajo(UnidadDeTrabajo):
@@ -19,6 +20,10 @@ class SqlAlchemyUnidadDeTrabajo(UnidadDeTrabajo):
     clase sirve para una petición HTTP y para un comando de saga que llega por
     Pulsar. Los errores de la base se traducen aquí porque, al sacar el `commit`
     del repositorio, es al confirmar cuando aparecen.
+
+    Billeteras y bandeja de salida se construyen sobre la **misma** sesión: es lo
+    que hace que el evento de integración y el movimiento que lo provocó se
+    confirmen con un solo `commit`.
     """
 
     def __init__(self, fabrica_de_sesiones: Callable[[], Session] = SessionLocal) -> None:
@@ -28,6 +33,7 @@ class SqlAlchemyUnidadDeTrabajo(UnidadDeTrabajo):
     def __enter__(self) -> SqlAlchemyUnidadDeTrabajo:
         self._session = self._fabrica_de_sesiones()
         self.billeteras = SqlAlchemyBilleteraRepository(self._session)
+        self.eventos_salientes = SqlAlchemyRepositorioEventosSalientes(self._session)
         return self
 
     def __exit__(self, tipo, error, rastro) -> None:

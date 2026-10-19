@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from app.aplicacion.eventos import despachar_eventos_pendientes
+from app.aplicacion.eventos import anunciar_hechos, encolar_eventos_pendientes
 from app.aplicacion.puertos import DomainEventDispatcher, UnidadDeTrabajo
 from app.dominio.billetera import BilleteraId
 from app.dominio.errores import BilleteraNoEncontradaError
@@ -28,5 +28,8 @@ class EliminarBilleteraHandler:
             # El agregado valida primero: si la regla falla no se toca la base.
             billetera.confirmar_eliminacion()
             uow.billeteras.eliminar(billetera)
+            # El aviso sobrevive a la billetera: la bandeja de salida no tiene
+            # llave foránea contra ella, y el consumidor necesita el hecho.
+            hechos = encolar_eventos_pendientes(billetera, uow)
             uow.confirmar()
-        despachar_eventos_pendientes(billetera, self._dispatcher)
+        anunciar_hechos(hechos, self._dispatcher)
