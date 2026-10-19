@@ -76,8 +76,10 @@ La transacción la gobierna el caso de uso, no el repositorio:
 - si algo falla antes de confirmar, `SqlAlchemyUnidadDeTrabajo` revierte al salir del
   bloque, de modo que **nunca queda un saldo sin su movimiento ni un movimiento sin su
   saldo** — que es la razón de aplicar el patrón a una billetera;
-- los eventos de dominio se despachan **después** de confirmar, cuando el hecho ya es
-  definitivo;
+- el evento de integración se **encola dentro** del bloque (`uow.eventos_salientes`), así
+  que entra en el mismo `commit` que el saldo; los eventos de dominio se anuncian al bus
+  interno **después** de confirmar, cuando el hecho ya es definitivo (ver la bandeja de
+  salida, más abajo);
 - se crea una unidad de trabajo por petición HTTP y otra por mensaje de Pulsar, cada una
   con su propia sesión. Las consultas siguen usando un repositorio de solo lectura.
 
@@ -130,47 +132,98 @@ resultado.
 billetera suspendida rechaza la liquidación con `AcreditacionRechazada` sin mover el saldo.
 El `POST /billeteras/{id}/acreditar` administrativo conserva su comportamiento anterior.
 
-## Eventos de dominio y de integración
+## Eventos de dominio y de integración: la bandeja de salida (patrón Outbox)
 
-El caso de uso no decide qué ocurre tras un hecho: persiste el agregado y entrega sus
-eventos al bus. Todo lo demás son suscriptores.
+Un hecho de WalletBC tiene dos destinos con garantías distintas, y por eso viaja por dos
+caminos separados:
 
 ```
 Handler de comando
-  └─ repo.guardar(billetera)                     commit
-  └─ despachar_eventos_pendientes(billetera, dispatcher)
-       └─ dispatcher.despachar(SaldoDebitado)
-            ├─ AuditarEventoDeDominioHandler      lógica interna
-            └─ PublicarEventoDeIntegracionHandler
-                 └─ traduce a SaldoDebitadoV1
-                      └─ MessageBroker.publicar()   ← puerto abstracto
-                           └─ LoggingMessageBroker | RabbitMQ | SQS
+  └─ with uow:
+       ├─ uow.billeteras.guardar(billetera)              flush
+       ├─ encolar_eventos_pendientes(billetera, uow)     flush  ← traduce y encola
+       │    └─ traductores.py: SaldoDebitado → SaldoDebitadoV1
+       │         └─ uow.eventos_salientes.encolar(...)   tabla `eventos_salientes`
+       └─ uow.confirmar()                                UN SOLO COMMIT
+  └─ anunciar_hechos(hechos, dispatcher)                 tras confirmar
+       └─ AuditarEventoDeDominioHandler                  lógica interna del proceso
+
+PublicadorOutbox  (hilo de fondo, cada segundo)
+  └─ tomar_pendientes()            SELECT … FOR UPDATE SKIP LOCKED
+  └─ MessageBroker.publicar(sobre) ← puerto abstracto, envío síncrono
+  │    └─ PulsarMessageBroker | LoggingMessageBroker | InMemoryMessageBroker
+  └─ marcar_publicado() | marcar_fallido()   backoff exponencial
 ```
 
-Tres decisiones importantes:
+Cuatro decisiones importantes:
 
+- **El anuncio se guarda con el saldo, en la misma transacción.** La fila de
+  `eventos_salientes` y el movimiento entran en el mismo `commit`, así que es imposible
+  que exista uno sin el otro. Esa es toda la idea del patrón: antes, el evento se
+  publicaba después del commit y una caída del broker en esa ventana lo perdía en
+  silencio.
+- **Publicar es de otro, y después.** El relay corre fuera de la transacción y puede
+  reintentar cuantas veces haga falta sin arriesgar el saldo. A cambio la entrega es
+  *at-least-once*: el sobre lleva `event_id` para que el consumidor deduplique.
 - **Los eventos de integración son clases aparte** (`aplicacion/eventos_integracion/`),
   con sufijo de versión y campos primitivos. El contrato público no es un volcado del
   evento de dominio, así que renombrar un campo interno no rompe a otros bounded contexts.
-  La conversión vive en un solo sitio: `aplicacion/manejadores/traductores.py`.
-- **Al handler de publicación se le inyecta el puerto `MessageBroker`**, nunca un
-  adaptador concreto. Migrar a RabbitMQ o SQS es implementar esa interfaz en
-  `infraestructura/adaptadores/salida/mensajeria/` y cambiar la instancia que devuelve
-  `obtener_broker()` en `dependencias.py`.
-- **Un suscriptor que falla no arrastra a los demás.** El dispatcher aísla cada handler y
-  registra la excepción: cuando se despacha, el agregado ya está confirmado en base, y
-  propagar el error produciría una respuesta que contradice el estado persistido. El
-  precio es que un evento puede perderse si el broker está caído; resolverlo requiere el
-  patrón Outbox, pendiente para cuando entre mensajería real.
+  La conversión vive en un solo sitio: `aplicacion/manejadores/traductores.py`, y se
+  ejecuta **al encolar**: lo que se guarda ya es contrato público, de modo que un evento
+  encolado antes de un despliegue sale con el contrato con el que se guardó.
+- **El bus interno ya no publica hacia afuera.** Antes el `PublicarEventoDeIntegracionHandler`
+  colgaba del dispatcher junto a la auditoría; se separaron porque tienen garantías
+  incompatibles: la auditoría puede perderse sin consecuencias, el contrato público no.
+  El dispatcher conserva su aislamiento de suscriptores (un handler roto no arrastra a los
+  demás), que ahora solo afecta a lógica interna.
 
-La suscripción se hace sobre `DomainEvent`, de modo que un evento nuevo queda cubierto sin
-registrarlo a mano. Si aun así llega un evento sin suscriptores, o sin traductor de
-integración, el bus lo advierte en el log en lugar de ignorarlo en silencio.
+`DebitoRechazado` y `AcreditacionRechazada` se encolan aunque su transacción se haya
+revertido: el saldo no se movió, pero el hecho ocurrió. Como no hay nada con lo que ser
+atómico, `registrar_hechos()` abre una transacción corta solo para la bandeja. En el caso
+de la acreditación, el rechazo se anuncia una sola vez: el definitivo, cuando ya se
+agotaron los reintentos.
 
-`DebitoRechazado` y `AcreditacionRechazada` también se despachan cuando el agregado rechaza
-una operación; no requieren guardar porque el saldo y los movimientos permanecen intactos.
-En el caso de la acreditación, el rechazo se anuncia una sola vez: el definitivo, cuando ya
-se agotaron los reintentos.
+### Operar la bandeja
+
+| Endpoint | Uso |
+|---|---|
+| `GET /outbox/resumen` | Conteo por estado. Si `por_publicar` crece, el broker no está recibiendo |
+| `GET /outbox?estado=PENDIENTE` | Detalle de los eventos, con intentos y último error |
+| `POST /outbox/{event_id}/reencolar` | Devuelve a la cola un evento `FALLIDO` |
+
+Estados de una fila: `PENDIENTE` → `PUBLICADO`, o `PENDIENTE` → `FALLIDO` cuando se agotan
+los `OUTBOX_MAX_INTENTOS`. `FALLIDO` es terminal *para el relay*, no para el operador: la
+fila conserva su payload y se puede reencolar.
+
+Con varias réplicas del servicio, `tomar_pendientes` usa `FOR UPDATE SKIP LOCKED` en
+PostgreSQL, así que cada relay se lleva filas distintas y ninguna se publica dos veces.
+SQLite no soporta la cláusula y tampoco la necesita.
+
+### DW-01. Bandeja de salida transaccional en lugar de publicar tras el commit
+
+- **Contexto:** WalletBC mueve dinero. Publicar el evento después de confirmar deja una
+  ventana en la que el saldo cambió y el anuncio se perdió —basta con que el broker esté
+  caído en ese instante—, y nadie se entera: no hay excepción ni rastro. En un contexto
+  financiero, un saldo acreditado que el resto del ecosistema nunca conoce es una
+  inconsistencia silenciosa.
+- **Decisión:** el caso de uso traduce el hecho a contrato público y lo **encola en
+  `eventos_salientes` dentro de su propia transacción**. Un relay en un hilo de fondo lee
+  lo pendiente y lo publica, reintentando con backoff exponencial. El puerto
+  `MessageBroker` pasa a recibir un `SobreDeEvento` ya serializado y a exigir envío
+  síncrono, porque el relay solo puede marcar una fila como publicada si tiene la
+  confirmación del broker.
+- **Alternativa descartada:** dejar la publicación colgando del bus de eventos de dominio
+  (como estaba) y confiar en que Pulsar esté disponible. Es una línea de código y cero
+  tablas, pero la garantía que ofrece es «casi siempre», que es precisamente lo que no
+  sirve para una billetera. También se descartó publicar *antes* de confirmar: anunciaría
+  acreditaciones que luego se revierten.
+- **Consecuencias:** una tabla y un hilo más por proceso, latencia de hasta
+  `OUTBOX_INTERVALO_SEGUNDOS` entre el hecho y su anuncio, y entrega *at-least-once* —el
+  consumidor debe deduplicar por `event_id`—. A cambio, ningún evento confirmado se pierde
+  aunque el broker esté caído: se acumulan en `PENDIENTE` y salen cuando vuelve.
+- **Punto de sensibilidad:** el crecimiento de la tabla. Hoy las filas `PUBLICADO` se
+  conservan porque sirven de auditoría y el volumen de la POC es bajo; en producción
+  necesitan una purga periódica.
 
 ## Requisitos y ejecución
 
@@ -206,21 +259,38 @@ cp .env.example .env
 | `ACREDITACION_ESPERA_INICIAL_SEGUNDOS` | `0.5` | Primera espera del backoff |
 | `ACREDITACION_FACTOR_BACKOFF` | `2.0` | Cuánto crece la espera en cada intento |
 | `SEMBRAR_BILLETERAS` | `true` | Crea al arrancar la billetera del proveedor de la demo |
+| `MESSAGE_BROKER` | `logging` | Transporte del relay: `pulsar` o `logging` |
+| `PULSAR_TOPICO_EVENTOS_INTEGRACION` | `eventos-wallet-integracion` | Tópico al que publica la bandeja de salida |
+| `OUTBOX_HABILITADO` | `true` | Arranca el relay. En `false` los eventos se encolan y nadie los publica |
+| `OUTBOX_INTERVALO_SEGUNDOS` | `1.0` | Cada cuánto el relay busca pendientes |
+| `OUTBOX_LOTE` | `50` | Máximo de eventos por pasada |
+| `OUTBOX_MAX_INTENTOS` | `5` | Intentos de entrega antes de marcar `FALLIDO` |
+| `OUTBOX_ESPERA_BASE_SEGUNDOS` | `2.0` | Primera espera del backoff del relay |
 
 Sin Pulsar el servicio arranca igual: la API REST sigue atendiendo billeteras y retiros, y
-solo deja de llegar el paso de acreditación de la saga.
+solo deja de llegar el paso de acreditación de la saga. Los eventos de integración se
+siguen encolando en la bandeja de salida y saldrán cuando el broker vuelva.
 
 ### Pruebas automatizadas
 
 Cubren la Unidad de Trabajo (confirmación, reversión y atomicidad saldo/movimiento), el
-retiro por proveedor y el paso de acreditación de la saga (idempotencia, backoff,
-recuperación entre reintentos y fallos permanentes). Corren sobre SQLite, sin Pulsar:
+retiro por proveedor, el paso de acreditación de la saga (idempotencia, backoff,
+recuperación entre reintentos y fallos permanentes) y la bandeja de salida (escritura
+transaccional, relay, backoff, agotamiento de intentos y reencolado). Corren sobre SQLite,
+sin Pulsar:
 
 ```bash
 DATABASE_URL="sqlite:///:memory:" python3 -m unittest discover -s tests
-# un solo caso
+# solo la bandeja de salida
+DATABASE_URL="sqlite:///:memory:" python3 -m unittest tests.test_outbox -v
+# solo unidad de trabajo y saga
 DATABASE_URL="sqlite:///:memory:" python3 -m unittest tests.test_unidad_de_trabajo_y_saga -v
 ```
+
+La prueba que sostiene el patrón es
+`test_un_fallo_antes_de_confirmar_no_deja_ni_saldo_ni_evento`: si la transacción se
+revierte, no queda ni el movimiento ni su anuncio. Y la que lo demuestra en operación es
+`test_cuando_el_broker_vuelve_sale_lo_acumulado`.
 
 `app/infraestructura/configuracion.py` carga ese `.env` al arrancar, resolviendo la ruta
 desde el propio archivo y no desde el directorio de trabajo, así que no hacen falta

@@ -52,8 +52,9 @@ cd pagos-service && DATABASE_URL="sqlite:///:memory:" python3 -m unittest discov
 # un solo test
 cd pagos-service && DATABASE_URL="sqlite:///:memory:" python3 -m unittest tests.test_unidad_de_trabajo -v
 
-# Unidad de Trabajo y paso de acreditación de la saga en WalletBC
+# Unidad de Trabajo, paso de acreditación de la saga y bandeja de salida (Outbox) en WalletBC
 cd wallet-service && DATABASE_URL="sqlite:///:memory:" python3 -m unittest discover -s tests
+cd wallet-service && DATABASE_URL="sqlite:///:memory:" python3 -m unittest tests.test_outbox -v
 
 # Saga: prueba unitaria en memoria (happy path, compensaciones y disputa)
 cd gestion-trabajos-service && python3 scripts/test_unitario_saga.py
@@ -137,8 +138,12 @@ Reglas que sostienen esa separación:
   `aplicacion/eventos_integracion/` con tipos primitivos y sufijo de versión (`TrabajoCreadoV2`).
   La conversión vive solo en `aplicacion/manejadores/traductores.py`. Máximo dos versiones
   activas por evento; la vieja se marca `deprecado`.
-- **Un suscriptor que falla no arrastra a los demás**: el dispatcher aísla y registra. No hay
-  Outbox — si el broker cae tras el commit, el evento se pierde (pendiente conocido).
+- **Un suscriptor que falla no arrastra a los demás**: el dispatcher aísla y registra. En
+  gestion-trabajos, pagos y operaciones **no hay Outbox** — si el broker cae tras el commit, el
+  evento se pierde (pendiente conocido). **WalletBC sí lo tiene** (`DW-01`): encola el evento de
+  integración en `eventos_salientes` dentro de la transacción del caso de uso y un relay en hilo
+  de fondo lo publica después, con backoff y reintentos; ahí el puerto `MessageBroker` recibe un
+  `SobreDeEvento` serializado y exige envío síncrono.
 - **Bloqueo optimista** (versión en la fila) → `409` o *nack* del comando ante conflicto.
 - **`create_all` al arrancar**, sin migraciones versionadas: un cambio en `modelos_orm.py` no
   altera tablas existentes.

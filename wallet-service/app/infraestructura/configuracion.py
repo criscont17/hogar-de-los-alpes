@@ -55,6 +55,23 @@ PULSAR_SUSCRIPCION_COMANDOS_WALLET = _texto(
 )
 PULSAR_CONSUMIR_COMANDOS_WALLET = _booleano("PULSAR_CONSUMIR_COMANDOS_WALLET", False)
 
+# Eventos de integración de WalletBC hacia el resto del ecosistema. Los publica el
+# relay de la bandeja de salida, nunca el caso de uso.
+MESSAGE_BROKER = _texto("MESSAGE_BROKER", "logging").lower()
+PULSAR_TOPICO_EVENTOS_INTEGRACION = _texto(
+    "PULSAR_TOPICO_EVENTOS_INTEGRACION", "persistent://public/default/eventos-wallet-integracion"
+)
+
+# Bandeja de salida (patrón Outbox).
+OUTBOX_HABILITADO = _booleano("OUTBOX_HABILITADO", True)
+OUTBOX_INTERVALO_SEGUNDOS = _numero("OUTBOX_INTERVALO_SEGUNDOS", 1.0)
+OUTBOX_LOTE = int(_numero("OUTBOX_LOTE", 50))
+# Cuántas veces se reintenta la entrega antes de dar el evento por FALLIDO. Con la
+# espera base de 2 s y backoff exponencial, 5 intentos cubren ~30 s de caída del
+# broker; pasado eso la fila queda para reencolar a mano desde `/outbox`.
+OUTBOX_MAX_INTENTOS = int(_numero("OUTBOX_MAX_INTENTOS", 5))
+OUTBOX_ESPERA_BASE_SEGUNDOS = _numero("OUTBOX_ESPERA_BASE_SEGUNDOS", 2.0)
+
 # Billeteras de demostración creadas al arrancar (ver `semilla.py`).
 SEMBRAR_BILLETERAS = _booleano("SEMBRAR_BILLETERAS", True)
 

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from app.aplicacion.dtos import BilleteraDetalleDTO
-from app.aplicacion.eventos import despachar_eventos_pendientes
+from app.aplicacion.eventos import anunciar_hechos, encolar_eventos_pendientes
 from app.aplicacion.mapeo import billetera_a_detalle_dto
 from app.aplicacion.puertos import DomainEventDispatcher, UnidadDeTrabajo
 from app.dominio.billetera import BilleteraId, EstadoBilletera
@@ -40,6 +40,7 @@ class CambiarEstadoBilleteraHandler:
             else:
                 billetera.reactivar()
             uow.billeteras.guardar(billetera)
+            hechos = encolar_eventos_pendientes(billetera, uow)
             uow.confirmar()
-        despachar_eventos_pendientes(billetera, self._dispatcher)
+        anunciar_hechos(hechos, self._dispatcher)
         return billetera_a_detalle_dto(billetera)

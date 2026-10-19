@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from app.aplicacion.dtos import BilleteraDTO
-from app.aplicacion.eventos import despachar_eventos_pendientes
+from app.aplicacion.eventos import anunciar_hechos, encolar_eventos_pendientes
 from app.aplicacion.mapeo import billetera_a_dto
 from app.aplicacion.puertos import DomainEventDispatcher, UnidadDeTrabajo
 from app.dominio.billetera import BilleteraFactory
@@ -29,7 +29,9 @@ class CrearBilleteraHandler:
                 raise BilleteraDuplicadaError("El proveedor ya tiene una billetera")
             billetera = BilleteraFactory.crear_nueva(comando.proveedor_id, comando.moneda)
             uow.billeteras.guardar(billetera)
+            # Dentro de la transacción: el anuncio se confirma con la billetera.
+            hechos = encolar_eventos_pendientes(billetera, uow)
             uow.confirmar()
         # Fuera de la transacción: los eventos se anuncian cuando el hecho ya es definitivo.
-        despachar_eventos_pendientes(billetera, self._dispatcher)
+        anunciar_hechos(hechos, self._dispatcher)
         return billetera_a_dto(billetera)

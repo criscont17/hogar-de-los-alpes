@@ -2,7 +2,11 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from app.aplicacion.dtos import BilleteraDTO
-from app.aplicacion.eventos import despachar_eventos_pendientes
+from app.aplicacion.eventos import (
+    anunciar_hechos,
+    encolar_eventos_pendientes,
+    registrar_hechos,
+)
 from app.aplicacion.mapeo import billetera_a_dto
 from app.aplicacion.puertos import DomainEventDispatcher, UnidadDeTrabajo
 from app.dominio.billetera import Billetera, BilleteraId, Dinero, MotivoMovimiento
@@ -43,10 +47,12 @@ class DebitarSaldoHandler:
                     comando.referencia_externa,
                 )
                 uow.billeteras.guardar(billetera)
+                hechos = encolar_eventos_pendientes(billetera, uow)
                 uow.confirmar()
         except (FondosInsuficientesError, BilleteraSuspendidaError):
             # El rechazo no cambia el agregado, pero su evento sí debe observarse.
-            despachar_eventos_pendientes(billetera, self._dispatcher)
+            # La transacción anterior ya se revirtió: el aviso abre la suya.
+            registrar_hechos(billetera, self._uow, self._dispatcher)
             raise
-        despachar_eventos_pendientes(billetera, self._dispatcher)
+        anunciar_hechos(hechos, self._dispatcher)
         return billetera_a_dto(billetera)
